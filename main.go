@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"log"
 	"os"
+	"os/exec"
 	"path"
 	"time"
 
@@ -14,9 +16,11 @@ import (
 var (
 	tlsserver = ""
 	// quicserver = ""
-	www      = ""
-	godaemon = false
-	logFile  = ""
+	www          = ""
+	godaemon     = false
+	logFile      = ""
+	guardProcess = false
+	watch        = ""
 )
 
 func Daemon(args []string, LOG_FILE string) {
@@ -71,12 +75,18 @@ func main() {
 	flag.StringVar(&tlsserver, "tls-api", "0.0.0.0:55443", "http3 server addr")
 	flag.StringVar(&www, "www", "/tmp/www", "http3 server www dir path")
 	flag.BoolVar(&godaemon, "d", false, "run as a daemon !")
+	flag.StringVar(&watch, "watch", "", "set watch puzzcle")
 	flag.StringVar(&logFile, "log", "/tmp/z.log", "set daemon log file path")
+	flag.BoolVar(&guardProcess, "g", false, "set gurad process to commit")
 	flag.Parse()
 	if !gs.Str(www).IsExists() {
 		gs.Str(www).Mkdir()
 	}
 
+	if watch != "" {
+		Watch(watch)
+		os.Exit(0)
+	}
 	if godaemon {
 		args := []string{}
 		for _, a := range os.Args {
@@ -90,9 +100,44 @@ func main() {
 		// fmt.Printf("%s [PID] %d running...\n", os.Args[0], cmd.Process.Pid)
 		os.Exit(0)
 	}
+
+	if guardProcess {
+		// name := filepath.Base(os.Args[0])
+		args := []string{os.Args[0], "-watch", os.Args[0]}
+		// for _, a := range os.Args {
+		// 	if a == "-g" {
+		// 		continue
+		// 	}
+		// 	args = append(args, a)
+		// }
+		Daemon(args, "/tmp/log-g.log")
+	}
 	// gs.Str(quicserver).Println("Server Run")
 	// go servercontroll.HTTP3Server(quicserver, www, true)
 	time.Sleep(7 * time.Second)
 	servercontroll.HTTP3Server(tlsserver, www, false)
 
+}
+
+func Watch(watch string) {
+	for {
+		time.Sleep(2 * time.Second)
+		cmd := exec.Command("bash", "-c", "ps aux | grep "+watch+" | grep -v grep")
+		cmd.Env = append(cmd.Env, os.Environ()...)
+		buf := bytes.NewBuffer([]byte{})
+		cmd.Stdout = buf
+		cmd.Stderr = buf
+		cmd.Run()
+		// basename := filepath.Base(watch)
+		res := gs.Str(buf.String()).Replace(watch+" -watch "+watch, "")
+		gs.Str(res).Color("g").Println("test result")
+		if res.String() == "" {
+			Daemon([]string{watch}, "/tmp/z.log")
+			time.Sleep(10 * time.Second)
+		} else if !res.In(watch) {
+			Daemon([]string{watch}, "/tmp/z.log")
+			time.Sleep(10 * time.Second)
+		}
+
+	}
 }

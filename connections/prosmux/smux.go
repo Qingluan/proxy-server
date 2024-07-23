@@ -207,9 +207,8 @@ func (kconfig *SmuxConfig) GenerateConfig() *smux.Config {
 
 func (m *SmuxConfig) Server() (err error) {
 	// ColorD(m)
-
 	m.WrapProxyServer.AcceptHandle(1*time.Minute, func(con net.Conn) error {
-		go m.AccpetStream(con)
+		m.AccpetStream(con)
 		return nil
 	})
 
