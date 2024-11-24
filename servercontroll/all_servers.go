@@ -63,8 +63,11 @@ func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func setupHandler(www string) http.Handler {
+	fmt.Println("Scan all listen ports...")
 	mux := http.NewServeMux()
+
 	base.CloseALLPortUFW()
+	base.InitUsedPORT()
 
 	go func() {
 		for {

@@ -9,9 +9,15 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"gitee.com/dark.H/gs"
+)
+
+var (
+	LISTENER_USED_PORTS = map[int]bool{}
+	lock                = sync.RWMutex{}
 )
 
 const bufSize = 4096
@@ -185,8 +191,7 @@ func Exec(str gs.Str) gs.Str {
 	return gs.Str(outbuffer.String())
 }
 
-func GiveAPort() (port int) {
-	tmp_ports := map[int]bool{}
+func InitUsedPORT() {
 	Exec("lsof -i | awk '{print $9}' ").EveryLine(func(lineno int, line gs.Str) {
 		fr := line.Trim()
 		if line.In("->") {
@@ -195,13 +200,19 @@ func GiveAPort() (port int) {
 		if fr.In(":") {
 			p, er := strconv.Atoi(fr.Split(":")[1].Str())
 			if er == nil {
-				tmp_ports[p] = true
+				LISTENER_USED_PORTS[p] = true
 			}
 		}
 	})
 
+}
+
+func GiveAPort() (port int) {
+	lock.Lock()
+	defer lock.Unlock()
+	used_port := -1
 	for start_port := 20000; start_port < 60000; start_port++ {
-		if _, ok := tmp_ports[start_port]; !ok {
+		if _, ok := LISTENER_USED_PORTS[start_port]; !ok {
 			port = start_port
 			st := time.Now()
 			// fmt.Println("before listen port :", port, time.Since(st))
@@ -211,13 +222,20 @@ func GiveAPort() (port int) {
 
 				ln.Close()
 				OpenPortUFW(port)
-				return port
+				used_port = port
+
+				break
+			} else {
+				LISTENER_USED_PORTS[start_port] = true
 			}
 			fmt.Println("Found Can used Port Failed : ", err, time.Since(st))
 			time.Sleep(time.Second * 1)
-			break
+			// break
 		}
 	}
-	return -1
+	if used_port != -1 {
+		LISTENER_USED_PORTS[used_port] = true
+	}
+	return used_port
 
 }
