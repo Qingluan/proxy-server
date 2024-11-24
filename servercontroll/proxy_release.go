@@ -36,8 +36,12 @@ func GetProxy(proxyType ...string) *base.ProxyTunnel {
 		})
 
 		if c == 0 {
+			// st := time.Now()
+			// fmt.Println("reading proxy : ", time.Since(st))
 			tunnel := NewProxy("quic")
+			// fmt.Println("create quic proxy : ", time.Since(st))
 			AddProxy(tunnel)
+			// fmt.Println("create add proxy : ", time.Since(st))
 			return tunnel
 		} else {
 			LockArea(func() {
@@ -49,6 +53,8 @@ func GetProxy(proxyType ...string) *base.ProxyTunnel {
 			// 	return l.GetClientNum() < r.GetClientNum()
 			// })
 			// tunnel := nts.Nth(0)
+			// st := time.Now()
+			// fmt.Println("create other proxy : ", time.Since(st))
 			var tunnel *base.ProxyTunnel
 			for i := 0; i < 4; i++ {
 				var otunnel *base.ProxyTunnel
@@ -158,12 +164,16 @@ func GetProxyByID(name string) (c *base.ProxyTunnel) {
 }
 
 func NewProxy(tp string) *base.ProxyTunnel {
+	// st := time.Now()
 	switch tp {
 	case "tls":
+		// fmt.Println("tls before config :", time.Since(st))
 		config := base.RandomConfig()
-
+		// fmt.Println("tls  config :", time.Since(st))
 		protocl := protls.NewTlsServer(config)
+		// fmt.Println("tls server :", time.Since(st))
 		tunel := base.NewProxyTunnel(protocl)
+		// fmt.Println("tls tunnel :", time.Since(st))
 		return tunel
 	case "kcp":
 		config := base.RandomConfig()
@@ -171,14 +181,23 @@ func NewProxy(tp string) *base.ProxyTunnel {
 		tunel := base.NewProxyTunnel(protocl)
 		return tunel
 	case "quic":
+		// fmt.Println("quic before config :", time.Since(st))
 		config := base.RandomConfig()
+		// fmt.Println("quic config :", time.Since(st))
 		protocl := proquic.NewQuicServer(config)
+		// fmt.Println("quic new server :", time.Since(st))
 		tunel := base.NewProxyTunnel(protocl)
+		// fmt.Println("quic new tunnel :", time.Since(st))
 		return tunel
 	default:
+		// fmt.Println("tls before config :", time.Since(st))
+
 		config := base.RandomConfig()
+		// fmt.Println("tls  config :", time.Since(st))
 		protocl := protls.NewTlsServer(config)
+		// fmt.Println("tls server :", time.Since(st))
 		tunel := base.NewProxyTunnel(protocl)
+		// fmt.Println("tls tunnel :", time.Since(st))
 		return tunel
 	}
 }

@@ -1,11 +1,15 @@
 package servercontroll
 
 import (
+	"crypto/subtle"
+	"encoding/base64"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +17,50 @@ import (
 	"gitee.com/dark.H/ProxyZ/update"
 	"gitee.com/dark.H/gs"
 )
+
+func basicAuth(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			w.Header().Set("WWW-Authenticate", "Basic realm=\"Restricted Area\"")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		authParts := strings.SplitN(authHeader, " ", 2)
+		if len(authParts) != 2 || authParts[0] != "Basic" {
+			w.Header().Set("WWW-Authenticate", "Basic realm=\"Restricted Area\"")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		decoded, err := base64.StdEncoding.DecodeString(authParts[1])
+		if err != nil {
+			w.Header().Set("WWW-Authenticate", "Basic realm=\"Restricted Area\"")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		credentials := strings.SplitN(string(decoded), ":", 2)
+		if len(credentials) != 2 {
+			w.Header().Set("WWW-Authenticate", "Basic realm=\"Restricted Area\"")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		validUser := "admin@example.com"
+		validPass := fmt.Sprint(time.Now().Year()) + "@2pwd"
+
+		if subtle.ConstantTimeCompare([]byte(credentials[0]), []byte(validUser)) != 1 ||
+			subtle.ConstantTimeCompare([]byte(credentials[1]), []byte(validPass)) != 1 {
+			w.Header().Set("WWW-Authenticate", "Basic realm=\"Restricted Area\"")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
 
 func setupHandler(www string) http.Handler {
 	mux := http.NewServeMux()
@@ -37,7 +85,7 @@ func setupHandler(www string) http.Handler {
 		}
 	}()
 	if len(www) > 0 {
-		mux.HandleFunc("/z-files", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/z-files", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 			fs := gs.List[any]{}
 			gs.Str(www).Ls().Every(func(no int, i gs.Str) {
 				isDir := i.IsDir()
@@ -51,11 +99,11 @@ func setupHandler(www string) http.Handler {
 			})
 			Reply(w, fs, true)
 
-		})
+		}))
 		mux.Handle("/z-files-d/", http.StripPrefix("/z-files-d/", http.FileServer(http.Dir(www))))
 		mux.HandleFunc("/z-files-u", uploadFileFunc(www))
 	}
-	mux.HandleFunc("/z-info", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/z-info", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		d, err := Recv(r.Body)
 		if err != nil {
 			w.WriteHeader(400)
@@ -64,9 +112,9 @@ func setupHandler(www string) http.Handler {
 		if d == nil {
 			Reply(w, "alive", true)
 		}
-	})
+	}))
 
-	mux.HandleFunc("/z-set", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/z-set", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		d, err := Recv(r.Body)
 		if err != nil {
 			w.WriteHeader(400)
@@ -88,9 +136,9 @@ func setupHandler(www string) http.Handler {
 			}
 
 		}
-	})
+	}))
 
-	mux.HandleFunc("/proxy-info", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/proxy-info", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		ids := []string{}
 		proxy := gs.Dict[int]{
 			"tls":  0,
@@ -104,6 +152,7 @@ func setupHandler(www string) http.Handler {
 		}
 
 		clients := gs.List[string]{}
+		st := time.Now()
 		Tunnels.Every(func(no int, i *base.ProxyTunnel) {
 			proxy[i.GetConfig().ProxyType] += 1
 			aliveProxy[i.GetConfig().ProxyType] += i.GetClientNum()
@@ -114,16 +163,18 @@ func setupHandler(www string) http.Handler {
 			})
 			ids = append(ids, i.GetConfig().ID)
 		})
+		used := time.Now().Sub(st)
 		Reply(w, gs.Dict[any]{
 			"ids":    ids,
 			"alive":  aliveProxy,
 			"client": clients,
 			"proxy":  proxy,
 			"err":    ErrTypeCount,
+			"used":   used,
 		}, true)
-	})
+	}))
 
-	mux.HandleFunc("/z-dns", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/z-dns", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		d, err := Recv(r.Body)
 		if err != nil {
 			Reply(w, err, false)
@@ -149,15 +200,15 @@ func setupHandler(www string) http.Handler {
 		} else {
 			Reply(w, "no dns", false)
 		}
-	})
+	}))
 
-	mux.HandleFunc("/z-ufw-close-all", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/z-ufw-close-all", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		base.CloseALLPortUFW()
 		Reply(w, base.GetUFW(), true)
 
-	})
+	}))
 
-	mux.HandleFunc("/z-ufw", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/z-ufw", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		d, err := Recv(r.Body)
 		if err != nil {
 			Reply(w, err, false)
@@ -207,18 +258,20 @@ func setupHandler(www string) http.Handler {
 			}
 		}
 		Reply(w, base.GetUFW(), true)
-	})
+	}))
 
-	mux.HandleFunc("/proxy-get", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/proxy-get", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		d, err := Recv(r.Body)
 		if err != nil {
 			Reply(w, err, false)
 			return
 		}
 		if d == nil {
+			// st := time.Now()
 			tu := GetProxy()
+			// fmt.Println("use new proxy :", time.Now().Sub(st))
 			if !tu.On {
-
+				// fmt.Println("no proxy start , to start  :", time.Now().Sub(st))
 				afterID := tu.GetConfig().ID
 				// gs.Str("start id" + afterID).Println()
 				err := tu.Start(func() {
@@ -228,10 +281,13 @@ func setupHandler(www string) http.Handler {
 					Reply(w, err, false)
 					return
 				}
+				// fmt.Println("start ok   :", time.Now().Sub(st))
 			}
 			str := tu.GetConfig()
+			// fmt.Println("Init ok   :", time.Now().Sub(st))
 			// gs.Str(str.ProxyType + " in port %d").F(str.ServerPort).Color("g").Println("get")
 			Reply(w, str, true)
+			// fmt.Println("Fin   :", time.Now().Sub(st))
 		} else {
 			if proxyType, ok := d["type"]; ok {
 				switch proxyType.(type) {
@@ -283,9 +339,9 @@ func setupHandler(www string) http.Handler {
 				Reply(w, str, true)
 			}
 		}
-	})
+	}))
 
-	mux.HandleFunc("/z-log", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/z-log", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		if gs.Str("/tmp/z.log").IsExists() {
 			fp, err := os.Open("/tmp/z.log")
 			if err != nil {
@@ -297,9 +353,9 @@ func setupHandler(www string) http.Handler {
 		} else {
 			w.Write(gs.Str("/tmp/z.log not exists !!!").Bytes())
 		}
-	})
+	}))
 
-	mux.HandleFunc("/c-log", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/c-log", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		if gs.Str("/tmp/z.log").IsExists() {
 			defer gs.Str("").ToFile("/tmp/z.log", gs.O_NEW_WRITE)
 			fp, err := os.Open("/tmp/z.log")
@@ -312,9 +368,9 @@ func setupHandler(www string) http.Handler {
 		} else {
 			w.Write(gs.Str("/tmp/z.log not exists !!!").Bytes())
 		}
-	})
+	}))
 
-	mux.HandleFunc("/__close-all", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/__close-all", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		ids := gs.List[string]{}
 		LockArea(func() {
 			Tunnels.Every(func(no int, i *base.ProxyTunnel) {
@@ -328,9 +384,9 @@ func setupHandler(www string) http.Handler {
 		Reply(w, gs.Dict[gs.List[string]]{
 			"ids": ids,
 		}, true)
-	})
+	}))
 
-	mux.HandleFunc("/z11-update", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/z11-update", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		ids := gs.List[string]{}
 		Tunnels.Every(func(no int, i *base.ProxyTunnel) {
 			ids = append(ids, i.GetConfig().ID)
@@ -346,9 +402,9 @@ func setupHandler(www string) http.Handler {
 
 		// os.Exit(0)
 		// }
-	})
+	}))
 
-	mux.HandleFunc("/proxy-err", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/proxy-err", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 
 		d, err := Recv(r.Body)
 
@@ -401,16 +457,16 @@ func setupHandler(www string) http.Handler {
 		c := tu.GetConfig()
 		Reply(w, c, true)
 
-	})
+	}))
 
-	mux.HandleFunc("/proxy-new", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/proxy-new", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		tu := NewProxy("tls")
 
 		str := tu.GetConfig()
 		Reply(w, str, true)
-	})
+	}))
 
-	mux.HandleFunc("/proxy-del", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/proxy-del", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		d, err := Recv(r.Body)
 		if err != nil {
 			w.WriteHeader(400)
@@ -420,6 +476,6 @@ func setupHandler(www string) http.Handler {
 
 		str := DelProxy(configName)
 		Reply(w, str, true)
-	})
+	}))
 	return mux
 }

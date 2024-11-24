@@ -196,8 +196,11 @@ func ParseConfig(path string) (config *ProtocolConfig, err error) {
 }
 
 func RandomConfig() *ProtocolConfig {
+	// st := time.Now()
 	c := new(ProtocolConfig)
+	// fmt.Println("before give port :", time.Since(st))
 	port := GiveAPort()
+	// fmt.Println("give port :", port, time.Since(st))
 	c.ServerPort = port
 	c.Server = "0.0.0.0"
 	c.ServerPassword = string(gs.Str("").RandStr(16))

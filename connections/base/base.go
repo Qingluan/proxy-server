@@ -1,9 +1,12 @@
 package base
 
 import (
+	"bytes"
+	"fmt"
 	"io"
-	"math/rand"
 	"net"
+	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"time"
@@ -159,15 +162,62 @@ func GetUFW() string {
 	return port.Trim().Str()
 }
 
+func Exec(str gs.Str) gs.Str {
+	var args []string
+	// sep := "\n"
+	if runtime.GOOS == "windows" {
+		// sep = "\r\n"
+		args = []string{"C:\\Windows\\System32\\Cmd.exe", "/C"}
+	} else {
+		args = []string{"sh", "-c"}
+	}
+	PATH := os.Getenv("PATH")
+	if PATH == "" {
+		PATH = "/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin"
+	}
+	args = append(args, str.String())
+	cmd := exec.Command(args[0], args[1:]...)
+	outbuffer := bytes.NewBuffer([]byte{})
+	cmd.Stdout = outbuffer
+	cmd.Stderr = outbuffer
+	cmd.Run()
+
+	return gs.Str(outbuffer.String())
+}
+
 func GiveAPort() (port int) {
-	for {
-		port = 40000 + rand.Int()%10000
-		ln, err := net.Listen("tcp", ":"+gs.S(port).Str())
-		if err == nil {
-			ln.Close()
-			OpenPortUFW(port)
-			return port
+	tmp_ports := map[int]bool{}
+	Exec("lsof -i | awk '{print $9}' ").EveryLine(func(lineno int, line gs.Str) {
+		fr := line.Trim()
+		if line.In("->") {
+			fr = line.Split("->")[0]
+		}
+		if fr.In(":") {
+			p, er := strconv.Atoi(fr.Split(":")[1].Str())
+			if er == nil {
+				tmp_ports[p] = true
+			}
+		}
+	})
+
+	for start_port := 20000; start_port < 60000; start_port++ {
+		if _, ok := tmp_ports[start_port]; !ok {
+			port = start_port
+			st := time.Now()
+			// fmt.Println("before listen port :", port, time.Since(st))
+			ln, err := net.Listen("tcp", ":"+gs.S(port).Str())
+			// fmt.Println("listen port :", port, time.Since(st))
+			if err == nil {
+
+				ln.Close()
+				OpenPortUFW(port)
+				return port
+			}
+			fmt.Println("Found Can used Port Failed : ", err, time.Since(st))
+			time.Sleep(time.Second * 1)
+			break
 		}
 	}
+	return -1
 
 }
