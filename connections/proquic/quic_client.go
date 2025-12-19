@@ -14,7 +14,7 @@ type QuicClient struct {
 	addr      string
 	isclosed  bool
 	tlsconfig *tls.Config
-	qcon      quic.Connection
+	qcon      *quic.Conn
 	context   context.Context
 	eid       string
 }
@@ -54,11 +54,12 @@ func (q *QuicClient) NewConnnect() (con net.Conn, err error) {
 		return nil, errors.New("dia quic err")
 	}
 	conn := q.qcon
-	var stream quic.Stream
+	var stream *quic.Stream
 	// gs.Str("open stream !!").Println()
 	// cc, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	// conn.
 	// stream, err = conn.OpenStreamSync(context.Background())
+	// conn.OpenStreamSync(context.Background())
 	stream, err = conn.OpenStreamSync(context.Background())
 
 	if err != nil {

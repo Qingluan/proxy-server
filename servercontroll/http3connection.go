@@ -53,7 +53,7 @@ func GetHTTP3Client(usetls bool, timeout ...int) (client *http.Client) {
 		return client
 	}
 
-	roundTripper := &http3.RoundTripper{
+	roundTripper := &http3.Transport{
 		TLSClientConfig: config,
 		QUICConfig:      &qconf,
 	}

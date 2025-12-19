@@ -141,7 +141,7 @@ func (quicServer *QuicServer) TryClose() {
 	quicServer.ZeroToDel = true
 }
 
-func (quicServer *QuicServer) accpeStream(con quic.Connection) (err error) {
+func (quicServer *QuicServer) accpeStream(con *quic.Conn) (err error) {
 	// defer con.CloseWithError(quic.StreamErrorCode)
 	for {
 		stream, err := con.AcceptStream(context.Background())

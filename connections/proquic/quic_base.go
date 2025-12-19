@@ -16,12 +16,12 @@ var (
 )
 
 type QuicConn struct {
-	steam      quic.Stream
+	steam      *quic.Stream
 	remoteAddr net.Addr
 	localAddr  net.Addr
 }
 
-func WrapQuicNetConn(s quic.Stream, remoteAddr, local net.Addr) (qc *QuicConn) {
+func WrapQuicNetConn(s *quic.Stream, remoteAddr, local net.Addr) (qc *QuicConn) {
 	return &QuicConn{
 		steam:      s,
 		remoteAddr: remoteAddr,

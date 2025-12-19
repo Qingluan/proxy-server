@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -10,17 +11,19 @@ import (
 	"time"
 
 	"gitee.com/dark.H/ProxyZ/servercontroll"
+	"gitee.com/dark.H/edns/pkg/edns"
 	"gitee.com/dark.H/gs"
 )
 
 var (
 	tlsserver = ""
 	// quicserver = ""
-	www          = ""
-	godaemon     = false
-	logFile      = ""
-	guardProcess = false
-	watch        = ""
+	www           = ""
+	godaemon      = false
+	logFile       = ""
+	guardProcess  = false
+	ifnotstartdns = false
+	watch         = ""
 )
 
 func Daemon(args []string, LOG_FILE string) {
@@ -70,6 +73,28 @@ func Daemon(args []string, LOG_FILE string) {
 	// }
 }
 
+func StartDNS(port int) {
+	cfg := edns.DefaultConfig()
+	cfg.Server.ListenAddr = fmt.Sprintf("0.0.0.0:%d", port)
+	cfg.Server.TransportProtocol = "udp"
+	cfg.Server.EnableLogging = true
+	cfg.Server.UpstreamDNS = []string{"8.8.8.8:53", "1.1.1.1:53"}
+	// cfg.Common.EncryptionKey = "my-secret-key-123"
+
+	// 创建服务器
+	server, err := edns.NewServer(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer server.Close()
+
+	log.Println("Starting DNS proxy server...")
+	// 启动服务器（阻塞）
+	if err := server.StartService(); err != nil {
+		log.Fatal(err)
+	}
+}
+
 func main() {
 	// flag.StringVar(&quicserver, "quic-api", "0.0.0.0:55444", "http3 server addr")
 	flag.StringVar(&tlsserver, "tls-api", "0.0.0.0:55443", "http3 server addr")
@@ -78,6 +103,7 @@ func main() {
 	flag.StringVar(&watch, "watch", "", "set watch puzzcle")
 	flag.StringVar(&logFile, "log", "/tmp/z.log", "set daemon log file path")
 	flag.BoolVar(&guardProcess, "g", false, "set gurad process to commit")
+	flag.BoolVar(&ifnotstartdns, "nodns", false, "set if close dns server")
 	flag.Parse()
 	if !gs.Str(www).IsExists() {
 		gs.Str(www).Mkdir()
@@ -115,6 +141,9 @@ func main() {
 	// gs.Str(quicserver).Println("Server Run")
 	// go servercontroll.HTTP3Server(quicserver, www, true)
 	time.Sleep(7 * time.Second)
+	if ifnotstartdns {
+		go StartDNS(55354)
+	}
 	servercontroll.HTTP3Server(tlsserver, www, false)
 
 }
