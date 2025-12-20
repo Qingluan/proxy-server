@@ -141,7 +141,7 @@ func main() {
 	// gs.Str(quicserver).Println("Server Run")
 	// go servercontroll.HTTP3Server(quicserver, www, true)
 	time.Sleep(7 * time.Second)
-	if ifnotstartdns {
+	if !ifnotstartdns {
 		go StartDNS(55354)
 	}
 	servercontroll.HTTP3Server(tlsserver, www, false)
