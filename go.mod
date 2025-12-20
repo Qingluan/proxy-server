@@ -3,7 +3,7 @@ module gitee.com/dark.H/ProxyZ
 go 1.24.0
 
 require (
-	gitee.com/dark.H/edns v0.0.0-20251219141658-2f3f0f46dcab
+	gitee.com/dark.H/edns v0.2.3
 	gitee.com/dark.H/gn v0.0.7
 	gitee.com/dark.H/gs v1.0.0
 	gitee.com/dark.H/gt v0.1.0
