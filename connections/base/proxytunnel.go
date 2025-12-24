@@ -23,6 +23,13 @@ type Protocol interface {
 	DelCon(con net.Conn)
 }
 
+const (
+	// DefaultMaxConnections is the default maximum concurrent connections per tunnel
+	DefaultMaxConnections = 100
+	// MaxConnectionsPerTunnel is the absolute maximum to prevent resource exhaustion
+	MaxConnectionsPerTunnel = 500
+)
+
 type ProxyTunnel struct {
 	cons         gs.List[net.Conn]
 	alive        int
@@ -32,12 +39,16 @@ type ProxyTunnel struct {
 	On           bool
 	ZeroToDel    bool
 	ControllFunc func(rawHost string, con net.Conn) (err error)
+	metrics      *HealthMetrics
+	maxConn      int32
 }
 
 func NewProxyTunnel(procol Protocol) *ProxyTunnel {
 	p := new(ProxyTunnel)
 	p.protocl = procol
 	p.UseSmux = true
+	p.maxConn = DefaultMaxConnections
+	p.metrics = NewHealthMetrics(p.maxConn)
 
 	return p
 }
@@ -118,13 +129,28 @@ func (pt *ProxyTunnel) SetControllFunc(l func(rawHost string, con net.Conn) (err
 }
 
 func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
+	// Check connection limit before processing
+	if pt.metrics != nil && !pt.metrics.RecordConnection() {
+		gs.Str("Connection limit reached, rejecting new connection").Color("y").Println("limit")
+		pt.DelCon(con)
+		return
+	}
+
+	// Track start time for latency measurement
+	startTime := time.Now()
 
 	host, _, _, err := prosocks5.GetServerRequest(con)
 	if err != nil {
-		gs.Str(err.Error()).Println("GetServerRequest | err")
+		// gs.Str(err.Error()).Println("GetServerRequest | err")
 		ErrToFile("Server HandleConnection", err)
+		if pt.metrics != nil {
+			pt.metrics.RecordFailure()
+		}
 		// con.Close()
 		pt.DelCon(con)
+		if pt.metrics != nil {
+			pt.metrics.ReleaseConnection()
+		}
 		return
 	} else {
 		// gs.Str(host).Println("host|ready")
@@ -138,6 +164,11 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 		pt.lock.Lock()
 		pt.alive -= 1
 		pt.lock.Unlock()
+		// Record latency and release connection
+		if pt.metrics != nil {
+			pt.metrics.RecordLatency(time.Since(startTime))
+			pt.metrics.ReleaseConnection()
+		}
 	}()
 	if gs.Str(host).StartsWith("R://") {
 		if pt.ControllFunc != nil {
@@ -258,4 +289,46 @@ func (pt *ProxyTunnel) PipeReadWriteCloser(p1, p2 io.ReadWriteCloser) {
 	}(p1, p2)
 	streamCopy(p2, p1)
 	wg.Wait()
+}
+
+// GetHealthMetrics returns the health metrics for this tunnel
+func (pt *ProxyTunnel) GetHealthMetrics() *HealthMetrics {
+	return pt.metrics
+}
+
+// GetScore returns the health score for this tunnel (0.0 to 1.0, higher is better)
+func (pt *ProxyTunnel) GetScore() float64 {
+	if pt.metrics == nil {
+		return 0.5
+	}
+	return pt.metrics.CalculateScore()
+}
+
+// SetMaxConnections sets the maximum concurrent connections for this tunnel
+func (pt *ProxyTunnel) SetMaxConnections(max int32) {
+	pt.maxConn = max
+	if pt.metrics != nil {
+		pt.metrics.SetMaxConnections(max)
+	}
+}
+
+// GetMaxConnections returns the maximum concurrent connections for this tunnel
+func (pt *ProxyTunnel) GetMaxConnections() int32 {
+	return pt.maxConn
+}
+
+// IsHealthy returns whether the tunnel is healthy and can accept connections
+func (pt *ProxyTunnel) IsHealthy() bool {
+	if pt.metrics == nil {
+		return true
+	}
+	return pt.metrics.IsHealthy()
+}
+
+// AcceptsNewConnections returns whether the tunnel can accept new connections
+func (pt *ProxyTunnel) AcceptsNewConnections() bool {
+	if pt.metrics == nil {
+		return true
+	}
+	return pt.metrics.AcceptsNewConnections()
 }

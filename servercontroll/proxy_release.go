@@ -36,63 +36,95 @@ func GetProxy(proxyType ...string) *base.ProxyTunnel {
 		})
 
 		if c == 0 {
-			// st := time.Now()
-			// fmt.Println("reading proxy : ", time.Since(st))
+			// No tunnels exist, create a new quic tunnel (default)
 			tunnel := NewProxy("quic")
-			// fmt.Println("create quic proxy : ", time.Since(st))
 			AddProxy(tunnel)
-			// fmt.Println("create add proxy : ", time.Since(st))
 			return tunnel
-		} else {
-			LockArea(func() {
-				lastUse = lastUse % Tunnels.Count()
-				lastUse += 1
-				lastUse = lastUse % Tunnels.Count()
-			})
-			// nts := Tunnels.Sort(func(l, r *base.ProxyTunnel) bool {
-			// 	return l.GetClientNum() < r.GetClientNum()
-			// })
-			// tunnel := nts.Nth(0)
-			// st := time.Now()
-			// fmt.Println("create other proxy : ", time.Since(st))
-			var tunnel *base.ProxyTunnel
-			for i := 0; i < 4; i++ {
-				var otunnel *base.ProxyTunnel
-				LockArea(func() {
-					otunnel = Tunnels.Nth(lastUse)
-					lastUse += 1
-					lastUse = lastUse % Tunnels.Count()
-					tunnel = Tunnels.Nth(lastUse)
+		}
 
-				})
+		// Use health-based scoring to select the best tunnel
+		return selectBestTunnel()
+	} else {
+		// Specific proxy type requested
+		return selectByType(proxyType[0])
+	}
+}
 
-				if tunnel.GetConfig().ProxyType == otunnel.GetConfig().ProxyType || tunnel.GetClientNum() > otunnel.GetClientNum() {
-					continue
-				} else {
-					return tunnel
+// selectBestTunnel selects the best tunnel using health score
+func selectBestTunnel() *base.ProxyTunnel {
+	var bestTunnel *base.ProxyTunnel
+	var bestScore float64 = -1
+	var bestType string = ""
+
+	LockArea(func() {
+		for _, tunnel := range Tunnels {
+			if tunnel == nil || !tunnel.On {
+				continue
+			}
+
+			// Skip tunnels that can't accept new connections
+			if !tunnel.AcceptsNewConnections() {
+				continue
+			}
+
+			score := tunnel.GetScore()
+			tunnelType := tunnel.GetConfig().ProxyType
+
+			// Prefer different protocol types for load balancing
+			typeBonus := 0.0
+			if tunnelType != bestType {
+				typeBonus = 0.1
+			}
+
+			adjustedScore := score + typeBonus
+
+			if adjustedScore > bestScore {
+				bestScore = adjustedScore
+				bestTunnel = tunnel
+				bestType = tunnelType
+			}
+		}
+	})
+
+	// If no healthy tunnel found, create a new one
+	if bestTunnel == nil {
+		bestTunnel = NewProxy("quic")
+		AddProxy(bestTunnel)
+		gs.Str("No healthy tunnel found, created new quic tunnel").Color("y").Println("proxy")
+	}
+
+	return bestTunnel
+}
+
+// selectByType selects the best tunnel of a specific type
+func selectByType(proxyType string) *base.ProxyTunnel {
+	var bestTunnel *base.ProxyTunnel
+	var bestScore float64 = -1
+
+	LockArea(func() {
+		for _, tunnel := range Tunnels {
+			if tunnel == nil || !tunnel.On {
+				continue
+			}
+
+			if tunnel.GetConfig().ProxyType == proxyType {
+				score := tunnel.GetScore()
+				if tunnel.AcceptsNewConnections() && score > bestScore {
+					bestScore = score
+					bestTunnel = tunnel
 				}
 			}
-			return tunnel
+		}
+	})
 
-		}
-	} else {
-		var tu *base.ProxyTunnel
-		nts := Tunnels.Sort(func(l, r *base.ProxyTunnel) bool {
-			return l.GetClientNum() < r.GetClientNum()
-		})
-		nts.Every(func(no int, i *base.ProxyTunnel) {
-			if i.GetConfig().ProxyType == proxyType[0] {
-				tu = i
-			}
-		})
-		if tu == nil {
-			tunnel := NewProxy(proxyType[0])
-			AddProxy(tunnel)
-			return tunnel
-		} else {
-			return tu
-		}
+	// If no tunnel of this type exists, create one
+	if bestTunnel == nil {
+		bestTunnel = NewProxy(proxyType)
+		AddProxy(bestTunnel)
+		gs.Str("No tunnel of type %s found, created new one").F(proxyType).Color("y").Println("proxy")
 	}
+
+	return bestTunnel
 }
 
 func AddProxy(c *base.ProxyTunnel) {
@@ -133,22 +165,54 @@ func DelProxy(name string) (found bool) {
 }
 
 func NewProxyByErrCount() (c *base.ProxyTunnel) {
-	tlsnum := ErrTypeCount["tls"]
-	kcpnum := ErrTypeCount["kcp"]
-	quicum := ErrTypeCount["quic"]
-	if quicum < tlsnum {
-		c = NewProxy("quic")
-	} else {
-		if kcpnum < tlsnum {
-
-			c = NewProxy("kcp")
-		} else {
-			c = NewProxy("tls")
-		}
-
+	// Calculate average error rate for each protocol type
+	protocolStats := gs.Dict[struct {
+		totalConns   int64
+		failedConns int64
+		count       int
+	}]{
+		"tls":  {},
+		"kcp":  {},
+		"quic": {},
 	}
 
+	LockArea(func() {
+		for _, tunnel := range Tunnels {
+			if tunnel == nil {
+				continue
+			}
+			proxyType := tunnel.GetConfig().ProxyType
+			metrics := tunnel.GetHealthMetrics()
+			if metrics != nil {
+				total, _, failed, _, _ := metrics.GetStats()
+				stats := protocolStats[proxyType]
+				stats.totalConns += total
+				stats.failedConns += failed
+				stats.count += 1
+				protocolStats[proxyType] = stats
+			}
+		}
+	})
+
+	// Select protocol with lowest error rate
+	bestType := "quic"
+	lowestErrorRate := 1.0
+
+	for ptype, stats := range protocolStats {
+		if stats.count == 0 {
+			bestType = ptype
+			break
+		}
+		errorRate := float64(stats.failedConns) / float64(stats.totalConns)
+		if errorRate < lowestErrorRate {
+			lowestErrorRate = errorRate
+			bestType = ptype
+		}
+	}
+
+	c = NewProxy(bestType)
 	AddProxy(c)
+	gs.Str("Created new %s tunnel (error-based selection)").F(bestType).Color("g").Println("proxy")
 	return
 }
 

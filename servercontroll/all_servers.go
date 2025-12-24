@@ -153,12 +153,51 @@ func setupHandler(www string) http.Handler {
 			"quic": 0,
 			"kcp":  0,
 		}
+		// New health metrics
+		healthScores := gs.Dict[any]{}
+		errorRates := gs.Dict[any]{}
+		loadFactors := gs.Dict[any]{}
 
 		clients := gs.List[string]{}
 		st := time.Now()
 		Tunnels.Every(func(no int, i *base.ProxyTunnel) {
-			proxy[i.GetConfig().ProxyType] += 1
-			aliveProxy[i.GetConfig().ProxyType] += i.GetClientNum()
+			proxyType := i.GetConfig().ProxyType
+			proxy[proxyType] += 1
+			aliveProxy[proxyType] += i.GetClientNum()
+
+			// Collect health metrics
+			metrics := i.GetHealthMetrics()
+			if metrics != nil {
+				total, active, failed, _, avgLatency := metrics.GetStats()
+				errorRate := metrics.GetErrorRate()
+				loadFactor := metrics.GetLoadFactor()
+				score := i.GetScore()
+
+				tunnelInfo := gs.Dict[any]{
+					"id":           i.GetConfig().ID,
+					"type":         proxyType,
+					"score":        score,
+					"total":        total,
+					"active":       active,
+					"failed":       failed,
+					"error_rate":   errorRate,
+					"load_factor":  loadFactor,
+					"avg_latency":  avgLatency.Milliseconds(),
+					"max_conn":     metrics.GetMaxConnections(),
+					"is_healthy":   i.IsHealthy(),
+					"accepts_new":  i.AcceptsNewConnections(),
+				}
+				healthScores[i.GetConfig().ID] = tunnelInfo
+
+				// Aggregate by protocol type
+				if errorRates[proxyType] == nil {
+					errorRates[proxyType] = 0.0
+					loadFactors[proxyType] = 0.0
+				}
+				errorRates[proxyType] = errorRates[proxyType].(float64) + errorRate
+				loadFactors[proxyType] = loadFactors[proxyType].(float64) + loadFactor
+			}
+
 			i.GetClientIP().Every(func(no int, ip string) {
 				if !clients.In(ip) {
 					clients = clients.Add(ip)
@@ -166,14 +205,30 @@ func setupHandler(www string) http.Handler {
 			})
 			ids = append(ids, i.GetConfig().ID)
 		})
+
+		// Calculate averages for protocol types
+		for ptype := range proxy {
+			if proxy[ptype] > 0 {
+				count := float64(proxy[ptype])
+				if errorRates[ptype] != nil {
+					errorRates[ptype] = errorRates[ptype].(float64) / count
+				}
+				if loadFactors[ptype] != nil {
+					loadFactors[ptype] = loadFactors[ptype].(float64) / count
+				}
+			}
+		}
+
 		used := time.Now().Sub(st)
 		Reply(w, gs.Dict[any]{
-			"ids":    ids,
-			"alive":  aliveProxy,
-			"client": clients,
-			"proxy":  proxy,
-			"err":    ErrTypeCount,
-			"used":   used,
+			"ids":           ids,
+			"alive":         aliveProxy,
+			"client":        clients,
+			"proxy":         proxy,
+			"health_scores": healthScores,
+			"error_rates":   errorRates,
+			"load_factors":  loadFactors,
+			"used":          used,
 		}, true)
 	}))
 
