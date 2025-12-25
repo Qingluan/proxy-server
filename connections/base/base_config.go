@@ -42,7 +42,7 @@ type ProtocolConfig struct {
 	// instead of map to preserve the order.
 	ServerPassword string `json:"server_password"`
 
-	// shadowsocks options
+	// tcp-encrypt options
 	SSPassword  string `json:"ss_password"`
 	OldSSPwd    string `json:"ss_old"`
 	SSMethod    string `json:"ss_method"`

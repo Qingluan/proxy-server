@@ -21,6 +21,7 @@ import (
 	"gitee.com/dark.H/ProxyZ/connections/proquic"
 	"gitee.com/dark.H/ProxyZ/connections/prosmux"
 	"gitee.com/dark.H/ProxyZ/connections/prosocks5"
+	"gitee.com/dark.H/ProxyZ/connections/prosss"
 	"gitee.com/dark.H/ProxyZ/connections/protls"
 	"gitee.com/dark.H/ProxyZ/geo"
 	"gitee.com/dark.H/ProxyZ/router"
@@ -1428,6 +1429,8 @@ func (c *ClientControl) RebuildSmux(no int) (err error, conf *base.ProtocolConfi
 		singleTunnelConn, err = protls.ConnectTls(conf)
 	case "kcp":
 		singleTunnelConn, err = prokcp.ConnectKcp(conf)
+	case "ss":
+		singleTunnelConn, err = prosss.ConnectSS(conf)
 	case "quic":
 	default:
 		singleTunnelConn, err = prokcp.ConnectKcp(conf)
@@ -1466,7 +1469,7 @@ func (c *ClientControl) RebuildSmux(no int) (err error, conf *base.ProtocolConfi
 
 	} else {
 		if err == nil {
-			err = errors.New("tls/kcp only :  now method is :" + conf.ProxyType)
+			err = errors.New("tls/kcp/ss only :  now method is :" + conf.ProxyType)
 		}
 		return err, conf
 	}

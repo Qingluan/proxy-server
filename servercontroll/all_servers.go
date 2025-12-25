@@ -147,11 +147,13 @@ func setupHandler(www string) http.Handler {
 			"tls":  0,
 			"quic": 0,
 			"kcp":  0,
+			"ss":   0,
 		}
 		aliveProxy := gs.Dict[int]{
 			"tls":  0,
 			"quic": 0,
 			"kcp":  0,
+			"ss":   0,
 		}
 		// New health metrics
 		healthScores := gs.Dict[any]{}

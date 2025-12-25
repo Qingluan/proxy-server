@@ -6,6 +6,7 @@ import (
 	"gitee.com/dark.H/ProxyZ/connections/base"
 	"gitee.com/dark.H/ProxyZ/connections/prokcp"
 	"gitee.com/dark.H/ProxyZ/connections/proquic"
+	"gitee.com/dark.H/ProxyZ/connections/prosss"
 	"gitee.com/dark.H/ProxyZ/connections/protls"
 	"gitee.com/dark.H/gs"
 )
@@ -16,6 +17,7 @@ var (
 		"tls":  0,
 		"kcp":  0,
 		"quic": 0,
+		"ss":   0,
 	}
 	lastUse = 0
 )
@@ -174,6 +176,7 @@ func NewProxyByErrCount() (c *base.ProxyTunnel) {
 		"tls":  {},
 		"kcp":  {},
 		"quic": {},
+		"ss":   {},
 	}
 
 	LockArea(func() {
@@ -252,6 +255,20 @@ func NewProxy(tp string) *base.ProxyTunnel {
 		// fmt.Println("quic new server :", time.Since(st))
 		tunel := base.NewProxyTunnel(protocl)
 		// fmt.Println("quic new tunnel :", time.Since(st))
+		return tunel
+	case "ss":
+		config := base.RandomConfig()
+		config.SSMethod = "aes-256-gcm" // default method
+		ssServer, err := prosss.NewSSServer(config)
+		if err != nil {
+			gs.Str("Failed to create SS server: %v").F(err).Color("r").Println("proxy")
+			// Fallback to tls
+			config = base.RandomConfig()
+			protocl := protls.NewTlsServer(config)
+			tunel := base.NewProxyTunnel(protocl)
+			return tunel
+		}
+		tunel := base.NewProxyTunnel(ssServer)
 		return tunel
 	default:
 		// fmt.Println("tls before config :", time.Since(st))
