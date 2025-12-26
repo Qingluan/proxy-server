@@ -454,3 +454,146 @@ func TestConcurrentConnections(t *testing.T) {
 	wg.Wait()
 	gs.Str("Concurrent test completed, handled %d connections").F(connCount).Color("g").Println("ss")
 }
+
+// TestManyPackets tests sending many small packets
+func TestManyPackets(t *testing.T) {
+	password := "test-many-packets"
+	method := "aes-256-gcm"
+	serverAddr := "127.0.0.1:18892"
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Start server
+	go func() {
+		defer wg.Done()
+		runManyPacketsServer(t, serverAddr, password, method)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Run client
+	go func() {
+		defer wg.Done()
+		runManyPacketsClient(t, serverAddr, password, method)
+	}()
+
+	wg.Wait()
+}
+
+func runManyPacketsServer(t *testing.T, addr, password, method string) {
+	config := &base.ProtocolConfig{
+		Server:     "127.0.0.1",
+		ServerPort: 18892,
+		SSPassword: password,
+		SSMethod:   method,
+	}
+
+	server, err := NewSSServer(config)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	handle := func(conn net.Conn) error {
+		defer conn.Close()
+
+		buf := make([]byte, 4096)
+		packetCount := 0
+		totalBytes := 0
+
+		for {
+			n, err := conn.Read(buf)
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return err
+			}
+			if n == 0 {
+				break
+			}
+			packetCount++
+			totalBytes += n
+
+			// Echo back
+			_, err = conn.Write(buf[:n])
+			if err != nil {
+				return err
+			}
+		}
+
+		gs.Str("Server received %d packets, %d total bytes").F(packetCount, totalBytes).Color("g").Println("ss")
+		server.TryClose()
+		return nil
+	}
+
+	go server.AcceptHandle(30*time.Second, handle)
+	time.Sleep(25 * time.Second)
+}
+
+func runManyPacketsClient(t *testing.T, serverAddr, password, method string) {
+	host, port := parseAddr(serverAddr)
+	config := &base.ProtocolConfig{
+		Server:     host,
+		ServerPort: port,
+		SSPassword: password,
+		SSMethod:   method,
+	}
+
+	client, err := NewSSClient(config)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.conn.Close()
+
+	conn := &SSClientConn{
+		Conn:   client.conn,
+		cipher: client.cipher,
+	}
+
+	// Send many packets
+	numPackets := 1000
+	packetSize := 128
+	sendPacket := make([]byte, packetSize)
+	for i := range sendPacket {
+		sendPacket[i] = byte(i % 256)
+	}
+
+	startTime := time.Now()
+
+	for i := 0; i < numPackets; i++ {
+		// Modify packet with sequence number
+		sendPacket[0] = byte(i >> 8)
+		sendPacket[1] = byte(i & 0xff)
+
+		_, err := conn.Write(sendPacket)
+		if err != nil {
+			t.Fatalf("Client write packet %d failed: %v", i, err)
+		}
+
+		// Read response
+		buf := make([]byte, 4096)
+		n, err := conn.Read(buf)
+		if err != nil {
+			t.Fatalf("Client read packet %d failed: %v", i, err)
+		}
+
+		// Verify sequence number
+		seq := int(buf[0])<<8 | int(buf[1])
+		if seq != i {
+			t.Errorf("Sequence mismatch at packet %d: got seq %d", i, seq)
+		}
+
+		if n != packetSize {
+			t.Errorf("Size mismatch at packet %d: expected %d, got %d", i, packetSize, n)
+		}
+
+		// Progress indication
+		if (i+1)%100 == 0 {
+			gs.Str("Client progress: %d/%d packets").F(i+1, numPackets).Color("y").Println("ss")
+		}
+	}
+
+	duration := time.Since(startTime)
+	gs.Str("Client completed: %d packets in %v (%.2f packets/sec)").F(numPackets, duration, float64(numPackets)/duration.Seconds()).Color("g").Println("ss")
+}

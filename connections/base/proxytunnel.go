@@ -25,9 +25,9 @@ type Protocol interface {
 
 const (
 	// DefaultMaxConnections is the default maximum concurrent connections per tunnel
-	DefaultMaxConnections = 100
+	DefaultMaxConnections = 1000
 	// MaxConnectionsPerTunnel is the absolute maximum to prevent resource exhaustion
-	MaxConnectionsPerTunnel = 500
+	MaxConnectionsPerTunnel = 5000
 )
 
 type ProxyTunnel struct {
