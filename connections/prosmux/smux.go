@@ -74,7 +74,7 @@ func (kconfig *SmuxConfig) SetAsDefault() {
 	kconfig.AutoExpire = 7
 	kconfig.SmuxBuf = 4194304 * 2
 	kconfig.StreamBuf = 2097152 * 2
-	kconfig.AckNodelay = false
+	kconfig.AckNodelay = true // OPTIMIZED: true for lower latency and higher throughput (must match client)
 	kconfig.SocketBuf = 4194304 * 2
 }
 
@@ -163,12 +163,17 @@ func (s *SmuxConfig) NewConnnect() (con net.Conn, err error) {
 
 func (s *SmuxConfig) Close() error {
 	if s.Session != nil {
-
-		s.Session.Close()
-		if s.ClientConn != nil {
-			return s.ClientConn.Close()
+		// Close the session first to ensure all streams are properly closed
+		if err := s.Session.Close(); err != nil {
+			log.Printf("[SmuxConfig] session close error: %v", err)
 		}
-		return nil
+	}
+
+	if s.ClientConn != nil {
+		// Close the underlying connection after session is closed
+		if err := s.ClientConn.Close(); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -208,7 +213,7 @@ func (kconfig *SmuxConfig) GenerateConfig() *smux.Config {
 func (m *SmuxConfig) Server() (err error) {
 	// ColorD(m)
 	m.WrapProxyServer.AcceptHandle(1*time.Minute, func(con net.Conn) error {
-		m.AccpetStream(con)
+		go m.AccpetStream(con) // OPTIMIZED: async to prevent blocking
 		return nil
 	})
 
@@ -256,31 +261,72 @@ func (m *SmuxConfig) AccpetStream(conn net.Conn) (err error) {
 	mux, err := smux.Server(conn, smuxconfig)
 	if err != nil {
 		// fmt.Println(err)
-		return
+		return err
 	}
 
 	// Use WaitGroup to wait for all streams to finish
 	var wg sync.WaitGroup
+	streamDone := make(chan struct{})
+
+	// Set up a timeout for accepting streams
+	acceptTimeout := time.After(30 * time.Minute)
+
 	for {
-		// Accept a new stream
-		stream, err := mux.AcceptStream()
-		if err != nil {
-			// fmt.Println(err)
+		select {
+		case <-acceptTimeout:
+			// Timeout reached, stop accepting new streams
 			break
+		default:
+			// Accept a new stream with timeout
+			conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+			stream, err := mux.AcceptStream()
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					// Timeout during accept, check if we should continue
+					continue
+				}
+				// Other error, break the loop
+				break
+			}
+
+			// Clear the deadline after successful accept
+			conn.SetReadDeadline(time.Time{})
+
+			wg.Add(1)
+			go func(s *smux.Stream) {
+				defer func() {
+					wg.Done()
+					streamDone <- struct{}{}
+				}()
+
+				// Set timeout for stream handling
+				s.SetDeadline(time.Now().Add(5 * time.Minute))
+				m.handleStream(s)
+			}(stream)
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			// gs.Str("comming").Println("smux session accpet")
-			m.handleStream(stream)
-		}()
 	}
 
-	// Wait for all streams to finish before closing the multiplexer
-	wg.Wait()
-	mux.Close()
+	// Wait for all active streams to finish or timeout
+	streamCleanup := time.After(30 * time.Second)
 
-	return
+	go func() {
+		wg.Wait()
+		close(streamDone)
+	}()
+
+	select {
+	case <-streamDone:
+		// All streams finished gracefully
+	case <-streamCleanup:
+		// Force cleanup after timeout
+	}
+
+	// Close the multiplexer
+	if err := mux.Close(); err != nil {
+		// ignore close error
+	}
+
+	return nil
 }
 
 func ColorD(args interface{}, join ...string) {
