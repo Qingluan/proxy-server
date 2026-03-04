@@ -74,7 +74,7 @@ func (kconfig *SmuxConfig) SetAsDefault() {
 	kconfig.AutoExpire = 7
 	kconfig.SmuxBuf = 4194304 * 2
 	kconfig.StreamBuf = 2097152 * 2
-	kconfig.AckNodelay = true // OPTIMIZED: true for lower latency and higher throughput (must match client)
+	kconfig.AckNodelay = true
 	kconfig.SocketBuf = 4194304 * 2
 }
 
@@ -213,7 +213,7 @@ func (kconfig *SmuxConfig) GenerateConfig() *smux.Config {
 func (m *SmuxConfig) Server() (err error) {
 	// ColorD(m)
 	m.WrapProxyServer.AcceptHandle(1*time.Minute, func(con net.Conn) error {
-		go m.AccpetStream(con) // OPTIMIZED: async to prevent blocking
+		go m.AccpetStream(con)
 		return nil
 	})
 
