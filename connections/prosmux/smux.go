@@ -260,71 +260,28 @@ func (m *SmuxConfig) AccpetStream(conn net.Conn) (err error) {
 	// Use smux to multiplex the connection
 	mux, err := smux.Server(conn, smuxconfig)
 	if err != nil {
-		// fmt.Println(err)
 		return err
 	}
 
 	// Use WaitGroup to wait for all streams to finish
 	var wg sync.WaitGroup
-	streamDone := make(chan struct{})
-
-	// Set up a timeout for accepting streams
-	acceptTimeout := time.After(30 * time.Minute)
 
 	for {
-		select {
-		case <-acceptTimeout:
-			// Timeout reached, stop accepting new streams
+		// Accept a new stream
+		stream, err := mux.AcceptStream()
+		if err != nil {
 			break
-		default:
-			// Accept a new stream with timeout
-			conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-			stream, err := mux.AcceptStream()
-			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					// Timeout during accept, check if we should continue
-					continue
-				}
-				// Other error, break the loop
-				break
-			}
-
-			// Clear the deadline after successful accept
-			conn.SetReadDeadline(time.Time{})
-
-			wg.Add(1)
-			go func(s *smux.Stream) {
-				defer func() {
-					wg.Done()
-					streamDone <- struct{}{}
-				}()
-
-				// Set timeout for stream handling
-				s.SetDeadline(time.Now().Add(5 * time.Minute))
-				m.handleStream(s)
-			}(stream)
 		}
+		wg.Add(1)
+		go func(s *smux.Stream) {
+			defer wg.Done()
+			m.handleStream(s)
+		}(stream)
 	}
 
-	// Wait for all active streams to finish or timeout
-	streamCleanup := time.After(30 * time.Second)
-
-	go func() {
-		wg.Wait()
-		close(streamDone)
-	}()
-
-	select {
-	case <-streamDone:
-		// All streams finished gracefully
-	case <-streamCleanup:
-		// Force cleanup after timeout
-	}
-
-	// Close the multiplexer
-	if err := mux.Close(); err != nil {
-		// ignore close error
-	}
+	// Wait for all streams to finish before closing the multiplexer
+	wg.Wait()
+	mux.Close()
 
 	return nil
 }
