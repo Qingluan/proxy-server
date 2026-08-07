@@ -238,6 +238,22 @@ func (pt *ProxyTunnel) DnsNormal(host string, con net.Conn) (err error) {
 
 func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 	defer pt.DelCon(con)
+
+	// Reply with the SOCKS5 confirmation IMMEDIATELY, before dialing the
+	// target. The client waits on this confirm for up to 2s; dialing first
+	// made every request stall by that amount whenever the target dial was
+	// slow or the session congested. On dial failure we simply close: the
+	// client already consumed the confirm, so no failure reply can be sent
+	// safely at that point.
+	con.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if _, werr := con.Write(prosocks5.Socks5Confirm); werr != nil {
+		ErrToFile("back con is break", werr)
+		debuglog.Write("[dial] confirm-write fail host=%s err=%v", host, werr)
+		con.Close()
+		return werr
+	}
+	con.SetWriteDeadline(time.Time{})
+
 	dialStart := time.Now()
 	// Bounded dial: a black-holed target must not pin a stream goroutine forever.
 	dialer := &net.Dialer{
@@ -256,12 +272,6 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 		}
 		gs.Str(host + "|" + err.Error()).Println("host|failed")
 		debuglog.Write("[dial] fail host=%s err=%v elapsed=%s", host, err, dialElapsed)
-		// Reply with a SOCKS5 failure before closing so the client can tell
-		// a target-side failure (reply received) from a broken tunnel (EOF).
-		// Without this the client burns its whole confirm timeout and the
-		// stream leaks here (never closed).
-		con.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		con.Write(prosocks5.Socks5Failed)
 		con.Close()
 		return err
 	}
@@ -269,16 +279,6 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 	// tunnel_setup stalls.
 	if dialElapsed > time.Second {
 		debuglog.Write("[dial] SLOW host=%s elapsed=%s", host, dialElapsed)
-	}
-	// gs.Str(host).Println("host|ok")
-	// con.SetWriteDeadline(time.Now().Add(2 * time.Minute))
-	_, err = con.Write(prosocks5.Socks5Confirm)
-	if err != nil {
-		ErrToFile("back con is break", err)
-		debuglog.Write("[dial] confirm-write fail host=%s err=%v", host, err)
-		remoteConn.Close()
-		con.Close()
-		return
 	}
 	debuglog.Write("[req] host=%s dial=%s ok", host, dialElapsed)
 	gs.Str(host).Println("host|build")
