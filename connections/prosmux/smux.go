@@ -72,10 +72,10 @@ func (kconfig *SmuxConfig) SetAsDefault() {
 	kconfig.RcvWnd = 2048 * 2
 	kconfig.ScavengeTTL = 600
 	kconfig.AutoExpire = 7
-	kconfig.SmuxBuf = 4194304 * 2
-	kconfig.StreamBuf = 2097152 * 2
-	kconfig.AckNodelay = true
-	kconfig.SocketBuf = 4194304 * 2
+	kconfig.SmuxBuf = 4194304 // 4MB receive buffer
+	kconfig.StreamBuf = 2097152 // 2MB per-stream buffer
+	kconfig.AckNodelay = true // OPTIMIZED: true for lower latency and higher throughput (must match client)
+	kconfig.SocketBuf = 4194304 // 4MB socket buffer
 }
 
 func NewSmuxServer(proxyServer ProxyHandler, handle func(con net.Conn) (err error)) (s *SmuxConfig) {

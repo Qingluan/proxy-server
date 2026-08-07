@@ -132,6 +132,7 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 	// Check connection limit before processing
 	if pt.metrics != nil && !pt.metrics.RecordConnection() {
 		gs.Str("Connection limit reached, rejecting new connection").Color("y").Println("limit")
+		con.Close()
 		pt.DelCon(con)
 		return
 	}
@@ -139,6 +140,9 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 	// Track start time for latency measurement
 	startTime := time.Now()
 
+	// Bound the SOCKS5 handshake: the client pre-creates many streams, so an
+	// unconsumed one must not pin a goroutine and an FD forever.
+	con.SetReadDeadline(time.Now().Add(30 * time.Second))
 	host, _, _, err := prosocks5.GetServerRequest(con)
 	if err != nil {
 		// gs.Str(err.Error()).Println("GetServerRequest | err")
@@ -146,15 +150,15 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 		if pt.metrics != nil {
 			pt.metrics.RecordFailure()
 		}
-		// con.Close()
+		con.Close()
 		pt.DelCon(con)
 		if pt.metrics != nil {
 			pt.metrics.ReleaseConnection()
 		}
 		return
-	} else {
-		// gs.Str(host).Println("host|ready")
 	}
+	// Clear the handshake deadline after the request is parsed.
+	con.SetReadDeadline(time.Time{})
 
 	pt.lock.Lock()
 	pt.cons = pt.cons.Add(con)
@@ -226,7 +230,12 @@ func (pt *ProxyTunnel) DnsNormal(host string, con net.Conn) (err error) {
 
 func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 	defer pt.DelCon(con)
-	remoteConn, err := net.Dial("tcp", host)
+	// Bounded dial: a black-holed target must not pin a stream goroutine forever.
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	remoteConn, err := dialer.Dial("tcp", host)
 	if err != nil {
 		if ne, ok := err.(*net.OpError); ok && (ne.Err == syscall.EMFILE || ne.Err == syscall.ENFILE) {
 			// log too many open file error
@@ -236,7 +245,13 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 			ErrToFile("tcp normal", err)
 		}
 		gs.Str(host + "|" + err.Error()).Println("host|failed")
-		// log.Println("X connect to ->", host)
+		// Reply with a SOCKS5 failure before closing so the client can tell
+		// a target-side failure (reply received) from a broken tunnel (EOF).
+		// Without this the client burns its whole confirm timeout and the
+		// stream leaks here (never closed).
+		con.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		con.Write(prosocks5.Socks5Failed)
+		con.Close()
 		return err
 	}
 	// gs.Str(host).Println("host|ok")
@@ -245,6 +260,7 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 	if err != nil {
 		ErrToFile("back con is break", err)
 		remoteConn.Close()
+		con.Close()
 		return
 	}
 	gs.Str(host).Println("host|build")
@@ -254,40 +270,86 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 
 func (pt *ProxyTunnel) Pipe(p1, p2 net.Conn) {
 	var wg sync.WaitGroup
-	// var wait = 39 * time.Second
-	wg.Add(1)
-	streamCopy := func(dst net.Conn, src net.Conn, fr, to net.Addr) {
-		// startAt := time.Now()
-		Copy(dst, src)
-		// dst.SetReadDeadline(time.Now().Add(wait))
-		p1.Close()
-		p2.Close()
-		// }()
+	wg.Add(2)
+
+	const (
+		idleTimeout = 30 * time.Minute // per-read idle timeout, matches the client
+		bufferSize  = 128 * 1024
+	)
+
+	// Idle-based copy: the deadline is refreshed on every read, so long-lived
+	// transfers (videos, large downloads) are never truncated by a total
+	// timeout; only a truly idle connection is closed.
+	streamCopy := func(dst, src net.Conn) {
+		defer dst.Close()
+		defer src.Close()
+
+		buf := make([]byte, bufferSize)
+		for {
+			src.SetReadDeadline(time.Now().Add(idleTimeout))
+			nr, err := src.Read(buf)
+			if nr > 0 {
+				if nw, ew := dst.Write(buf[:nr]); ew != nil || nw != nr {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
 	}
 
-	go func(p1, p2 net.Conn) {
-		wg.Done()
-		streamCopy(p1, p2, p2.RemoteAddr(), p1.RemoteAddr())
-	}(p1, p2)
-	streamCopy(p2, p1, p1.RemoteAddr(), p2.RemoteAddr())
+	go func() {
+		defer wg.Done()
+		streamCopy(p1, p2)
+	}()
+	go func() {
+		defer wg.Done()
+		streamCopy(p2, p1)
+	}()
+
 	wg.Wait()
 }
 
 func (pt *ProxyTunnel) PipeReadWriteCloser(p1, p2 io.ReadWriteCloser) {
 	var wg sync.WaitGroup
-	// var wait = 39 * time.Second
-	wg.Add(1)
-	streamCopy := func(dst, src io.ReadWriteCloser) {
-		Copy(dst, src)
-		p1.Close()
-		p2.Close()
+	wg.Add(2)
 
+	const (
+		idleTimeout = 30 * time.Minute
+		bufferSize  = 128 * 1024
+	)
+
+	streamCopy := func(dst, src io.ReadWriteCloser) {
+		defer dst.Close()
+		defer src.Close()
+
+		buf := make([]byte, bufferSize)
+		for {
+			if c, ok := src.(interface{ SetReadDeadline(time.Time) error }); ok {
+				c.SetReadDeadline(time.Now().Add(idleTimeout))
+			}
+			nr, err := src.Read(buf)
+			if nr > 0 {
+				if nw, ew := dst.Write(buf[:nr]); ew != nil || nw != nr {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
 	}
-	go func(p1, p2 io.ReadWriteCloser) {
-		wg.Done()
+
+	go func() {
+		defer wg.Done()
 		streamCopy(p1, p2)
-	}(p1, p2)
-	streamCopy(p2, p1)
+	}()
+	go func() {
+		defer wg.Done()
+		streamCopy(p2, p1)
+	}()
+
 	wg.Wait()
 }
 
