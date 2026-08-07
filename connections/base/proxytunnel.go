@@ -135,6 +135,17 @@ func (pt *ProxyTunnel) SetControllFunc(l func(rawHost string, con net.Conn) (err
 }
 
 func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
+	// Global stream budget first: this is the primary defence against FD and
+	// memory exhaustion across all tunnels. Per-tunnel limits cannot stop a
+	// single client from exhausting the whole process.
+	if !TryAcquireStream() {
+		debuglog.Write("[limit] global stream cap reached active=%d", GlobalActiveStreams())
+		con.Close()
+		pt.DelCon(con)
+		return
+	}
+	defer ReleaseStream()
+
 	// Check connection limit before processing
 	if pt.metrics != nil && !pt.metrics.RecordConnection() {
 		gs.Str("Connection limit reached, rejecting new connection").Color("y").Println("limit")
@@ -286,14 +297,23 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 	return
 }
 
+const (
+	idleTimeout   = 30 * time.Minute
+	pipeBufferSize = 128 * 1024
+)
+
+// pipeBufPool recycles the 128KB copy buffers. Without pooling, every stream
+// pinned 2 x 128KB for its whole lifetime (256MB at 1000 concurrent streams).
+var pipeBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, pipeBufferSize)
+		return &b
+	},
+}
+
 func (pt *ProxyTunnel) Pipe(p1, p2 net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
-
-	const (
-		idleTimeout = 30 * time.Minute // per-read idle timeout, matches the client
-		bufferSize  = 128 * 1024
-	)
 
 	// Idle-based copy: the deadline is refreshed on every read, so long-lived
 	// transfers (videos, large downloads) are never truncated by a total
@@ -302,7 +322,10 @@ func (pt *ProxyTunnel) Pipe(p1, p2 net.Conn) {
 		defer dst.Close()
 		defer src.Close()
 
-		buf := make([]byte, bufferSize)
+		bufp := pipeBufPool.Get().(*[]byte)
+		buf := *bufp
+		defer pipeBufPool.Put(bufp)
+
 		for {
 			src.SetReadDeadline(time.Now().Add(idleTimeout))
 			nr, err := src.Read(buf)
@@ -333,16 +356,14 @@ func (pt *ProxyTunnel) PipeReadWriteCloser(p1, p2 io.ReadWriteCloser) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	const (
-		idleTimeout = 30 * time.Minute
-		bufferSize  = 128 * 1024
-	)
-
 	streamCopy := func(dst, src io.ReadWriteCloser) {
 		defer dst.Close()
 		defer src.Close()
 
-		buf := make([]byte, bufferSize)
+		bufp := pipeBufPool.Get().(*[]byte)
+		buf := *bufp
+		defer pipeBufPool.Put(bufp)
+
 		for {
 			if c, ok := src.(interface{ SetReadDeadline(time.Time) error }); ok {
 				c.SetReadDeadline(time.Now().Add(idleTimeout))

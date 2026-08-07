@@ -21,6 +21,11 @@ var (
 		"ss":   0,
 	}
 	lastUse = 0
+
+	// MaxTunnels caps how many proxy tunnels may exist. Without a cap, tunnel
+	// selection keeps creating new listeners whenever existing ones saturate,
+	// leaking ports/FDs until the process dies.
+	MaxTunnels = 16
 )
 
 func LockArea(a func()) {
@@ -89,8 +94,21 @@ func selectBestTunnel() *base.ProxyTunnel {
 		}
 	})
 
-	// If no healthy tunnel found, create a new one
+	// If no healthy tunnel found, create a new one - unless at the tunnel cap,
+	// in which case degrade to the first existing tunnel instead of leaking a
+	// new listener/port.
 	if bestTunnel == nil {
+		if Tunnels.Count() >= MaxTunnels {
+			LockArea(func() {
+				if Tunnels.Count() > 0 {
+					bestTunnel = Tunnels[0]
+				}
+			})
+			if bestTunnel != nil {
+				gs.Str("At tunnel cap (%d), reusing existing tunnel").F(MaxTunnels).Color("y").Println("proxy")
+				return bestTunnel
+			}
+		}
 		bestTunnel = NewProxy("quic")
 		AddProxy(bestTunnel)
 		gs.Str("No healthy tunnel found, created new quic tunnel").Color("y").Println("proxy")
@@ -120,8 +138,20 @@ func selectByType(proxyType string) *base.ProxyTunnel {
 		}
 	})
 
-	// If no tunnel of this type exists, create one
+	// If no tunnel of this type exists, create one - unless at the tunnel cap,
+	// in which case reuse any existing tunnel instead of leaking a listener.
 	if bestTunnel == nil {
+		if Tunnels.Count() >= MaxTunnels {
+			LockArea(func() {
+				if Tunnels.Count() > 0 {
+					bestTunnel = Tunnels[0]
+				}
+			})
+			if bestTunnel != nil {
+				gs.Str("At tunnel cap (%d), reusing existing tunnel").F(MaxTunnels).Color("y").Println("proxy")
+				return bestTunnel
+			}
+		}
 		bestTunnel = NewProxy(proxyType)
 		AddProxy(bestTunnel)
 		gs.Str("No tunnel of type %s found, created new one").F(proxyType).Color("y").Println("proxy")

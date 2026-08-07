@@ -10,6 +10,7 @@ import (
 	"path"
 	"time"
 
+	"gitee.com/dark.H/ProxyZ/connections/base"
 	"gitee.com/dark.H/ProxyZ/servercontroll"
 	"gitee.com/dark.H/edns/pkg/edns"
 	"gitee.com/dark.H/gs"
@@ -104,7 +105,15 @@ func main() {
 	flag.StringVar(&logFile, "log", "/tmp/z.log", "set daemon log file path")
 	flag.BoolVar(&guardProcess, "g", false, "set gurad process to commit")
 	flag.BoolVar(&ifnotstartdns, "nodns", false, "set if close dns server")
+	maxStreams := flag.Int64("max-streams", 8000, "global cap on concurrent streams across all tunnels (0 = unlimited)")
+	maxTunnels := flag.Int("max-tunnels", 16, "cap on the number of proxy tunnels (0 = default)")
 	flag.Parse()
+	if *maxStreams > 0 {
+		base.SetGlobalStreamLimit(*maxStreams)
+	}
+	if *maxTunnels > 0 {
+		servercontroll.MaxTunnels = *maxTunnels
+	}
 	if !gs.Str(www).IsExists() {
 		gs.Str(www).Mkdir()
 	}
