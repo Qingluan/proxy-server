@@ -14,6 +14,7 @@ import (
 
 	"gitee.com/dark.H/ProxyZ/asset"
 	"gitee.com/dark.H/ProxyZ/connections/base"
+	"gitee.com/dark.H/ProxyZ/connections/debuglog"
 
 	"gitee.com/dark.H/gs"
 	"github.com/quic-go/quic-go"
@@ -95,8 +96,10 @@ func HTTP3Server(serverAddr, wwwDir string, useQuic bool) {
 		}
 		// Bind to a port and listen for incoming connections
 		gs.Str(server.Addr).Println("QUIC HTTP")
+		debuglog.Write("[server] listen addr=%s quic=true", serverAddr)
 		err = server.ListenAndServe()
 		if err != nil {
+			debuglog.Write("[server] listen err=%v", err)
 			log.Println("listen server tls err:", err)
 		}
 
@@ -110,8 +113,10 @@ func HTTP3Server(serverAddr, wwwDir string, useQuic bool) {
 			TLSConfig:    tlsconfig,
 		}
 		gs.Str(server.Addr).Println("TLS HTTP")
+		debuglog.Write("[server] listen addr=%s quic=false", serverAddr)
 		ln, err := tls.Listen("tcp", serverAddr, tlsconfig)
 		if err != nil {
+			debuglog.Write("[server] listen err=%v", err)
 			log.Println("listen server tls err:", err)
 		}
 		server.Serve(ln)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/xtaci/smux"
+	"gitee.com/dark.H/ProxyZ/connections/debuglog"
 )
 
 var FGCOLORS = []func(a ...interface{}) string{
@@ -260,6 +261,7 @@ func (m *SmuxConfig) AccpetStream(conn net.Conn) (err error) {
 	// Use smux to multiplex the connection
 	mux, err := smux.Server(conn, smuxconfig)
 	if err != nil {
+		debuglog.Write("[smux] session create err=%v", err)
 		return err
 	}
 
@@ -270,6 +272,7 @@ func (m *SmuxConfig) AccpetStream(conn net.Conn) (err error) {
 		// Accept a new stream
 		stream, err := mux.AcceptStream()
 		if err != nil {
+			debuglog.Write("[smux] session end err=%v", err)
 			break
 		}
 		wg.Add(1)

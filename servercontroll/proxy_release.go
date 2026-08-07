@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"gitee.com/dark.H/ProxyZ/connections/base"
+	"gitee.com/dark.H/ProxyZ/connections/debuglog"
 	"gitee.com/dark.H/ProxyZ/connections/prokcp"
 	"gitee.com/dark.H/ProxyZ/connections/proquic"
 	"gitee.com/dark.H/ProxyZ/connections/prosss"
@@ -151,6 +152,7 @@ func DelProxy(name string) (found bool) {
 					ErrTypeCount[tun.GetConfig().ProxyType] = num
 				})
 			}
+			debuglog.Write("[tunnel] DelProxy id=%s type=%s", name, tun.GetConfig().ProxyType)
 			tun.SetWaitToClose()
 			base.ClosePortUFW(tun.GetConfig().ServerPort)
 			found = true

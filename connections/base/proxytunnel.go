@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"gitee.com/dark.H/ProxyZ/connections/debuglog"
 	"gitee.com/dark.H/ProxyZ/connections/prodns"
 	"gitee.com/dark.H/ProxyZ/connections/prosmux"
 	"gitee.com/dark.H/ProxyZ/connections/prosocks5"
@@ -75,6 +76,11 @@ func (pt *ProxyTunnel) Server(after func()) (err error) {
 		return errors.New("no protocol set in ProxyTunnel")
 	}
 	gs.Str("%s in %d id: %s").F(pt.GetConfig().ProxyType, serverPort, pt.GetConfig().ID).Println("service")
+	debuglog.Write("[tunnel] start type=%s port=%d id=%s", pt.GetConfig().ProxyType, serverPort, pt.GetConfig().ID)
+
+	defer func() {
+		debuglog.Write("[tunnel] stop id=%s port=%d", pt.GetConfig().ID, serverPort)
+	}()
 
 	if pt.GetConfig().ProxyType == "quic" {
 		// gs.Str(pt.GetConfig().ID + "|" + pt.GetConfig().ProxyType + "| addr:" + pt.GetConfig().RemoteAddr()).Println("Start Quic Server ")
@@ -132,6 +138,7 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 	// Check connection limit before processing
 	if pt.metrics != nil && !pt.metrics.RecordConnection() {
 		gs.Str("Connection limit reached, rejecting new connection").Color("y").Println("limit")
+		debuglog.Write("[limit] reject conn max=%d", pt.maxConn)
 		con.Close()
 		pt.DelCon(con)
 		return
@@ -147,6 +154,7 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 	if err != nil {
 		// gs.Str(err.Error()).Println("GetServerRequest | err")
 		ErrToFile("Server HandleConnection", err)
+		debuglog.Write("[handshake] err=%v", err)
 		if pt.metrics != nil {
 			pt.metrics.RecordFailure()
 		}
@@ -230,12 +238,14 @@ func (pt *ProxyTunnel) DnsNormal(host string, con net.Conn) (err error) {
 
 func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 	defer pt.DelCon(con)
+	dialStart := time.Now()
 	// Bounded dial: a black-holed target must not pin a stream goroutine forever.
 	dialer := &net.Dialer{
 		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}
 	remoteConn, err := dialer.Dial("tcp", host)
+	dialElapsed := time.Since(dialStart)
 	if err != nil {
 		if ne, ok := err.(*net.OpError); ok && (ne.Err == syscall.EMFILE || ne.Err == syscall.ENFILE) {
 			// log too many open file error
@@ -245,6 +255,7 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 			ErrToFile("tcp normal", err)
 		}
 		gs.Str(host + "|" + err.Error()).Println("host|failed")
+		debuglog.Write("[dial] fail host=%s err=%v elapsed=%s", host, err, dialElapsed)
 		// Reply with a SOCKS5 failure before closing so the client can tell
 		// a target-side failure (reply received) from a broken tunnel (EOF).
 		// Without this the client burns its whole confirm timeout and the
@@ -254,15 +265,22 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 		con.Close()
 		return err
 	}
+	// A dial slower than 1s is worth flagging: it maps to the client-side
+	// tunnel_setup stalls.
+	if dialElapsed > time.Second {
+		debuglog.Write("[dial] SLOW host=%s elapsed=%s", host, dialElapsed)
+	}
 	// gs.Str(host).Println("host|ok")
 	// con.SetWriteDeadline(time.Now().Add(2 * time.Minute))
 	_, err = con.Write(prosocks5.Socks5Confirm)
 	if err != nil {
 		ErrToFile("back con is break", err)
+		debuglog.Write("[dial] confirm-write fail host=%s err=%v", host, err)
 		remoteConn.Close()
 		con.Close()
 		return
 	}
+	debuglog.Write("[req] host=%s dial=%s ok", host, dialElapsed)
 	gs.Str(host).Println("host|build")
 	pt.Pipe(remoteConn, con)
 	return
