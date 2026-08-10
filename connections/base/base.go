@@ -239,3 +239,16 @@ func GiveAPort() (port int) {
 	return used_port
 
 }
+
+// ReleasePort frees a previously allocated tunnel port so GiveAPort can hand
+// it out again. Without this the port pool only grows upward (20000 -> 20018
+// over a few days of tunnel rotation), which is a slow leak that eventually
+// exhausts the range and breaks every client holding a stale port.
+func ReleasePort(port int) {
+	if port <= 0 {
+		return
+	}
+	lock.Lock()
+	defer lock.Unlock()
+	delete(LISTENER_USED_PORTS, port)
+}

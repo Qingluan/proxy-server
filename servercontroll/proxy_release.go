@@ -185,6 +185,7 @@ func DelProxy(name string) (found bool) {
 			debuglog.Write("[tunnel] DelProxy id=%s type=%s", name, tun.GetConfig().ProxyType)
 			tun.SetWaitToClose()
 			base.ClosePortUFW(tun.GetConfig().ServerPort)
+			base.ReleasePort(tun.GetConfig().ServerPort)
 			found = true
 			continue
 		} else {
@@ -201,7 +202,7 @@ func DelProxy(name string) (found bool) {
 func NewProxyByErrCount() (c *base.ProxyTunnel) {
 	// Calculate average error rate for each protocol type
 	protocolStats := gs.Dict[struct {
-		totalConns   int64
+		totalConns  int64
 		failedConns int64
 		count       int
 	}]{

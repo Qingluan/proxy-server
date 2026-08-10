@@ -69,6 +69,7 @@ func (pt *ProxyTunnel) Server(after func()) (err error) {
 	defer func() {
 		pt.On = false
 		ClosePortUFW(serverPort)
+		ReleasePort(serverPort)
 		after()
 	}()
 
@@ -298,7 +299,7 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 }
 
 const (
-	idleTimeout   = 30 * time.Minute
+	idleTimeout    = 30 * time.Minute
 	pipeBufferSize = 128 * 1024
 )
 
