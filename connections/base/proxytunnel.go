@@ -159,9 +159,14 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 	// Track start time for latency measurement
 	startTime := time.Now()
 
-	// Bound the SOCKS5 handshake: the client pre-creates many streams, so an
-	// unconsumed one must not pin a goroutine and an FD forever.
-	con.SetReadDeadline(time.Now().Add(30 * time.Second))
+	// Generous first-request deadline. The client pre-produces idle streams
+	// into a fastTunnels pool and only writes the SOCKS5 CONNECT when a
+	// request consumes the stream, so a short deadline kills healthy idle
+	// streams and triggers client-side "closed pipe" storms. Resource
+	// exhaustion is already bounded by the global stream cap and per-tunnel
+	// connection limit above, so this deadline only guards streams that never
+	// carry a request.
+	con.SetReadDeadline(time.Now().Add(10 * time.Minute))
 	host, _, _, err := prosocks5.GetServerRequest(con)
 	if err != nil {
 		// gs.Str(err.Error()).Println("GetServerRequest | err")
