@@ -24,7 +24,7 @@ import (
 
 var (
 	BU = gs.Str(`mkdir -p  /tmp/repo_update/GoR ; cd /tmp/repo_update/GoR && wget -c 'https://go.dev/dl/go1.21.11.linux-amd64.tar.gz' && tar -zxf go1.21.11.linux-amd64.tar.gz ; /tmp/repo_update/GoR/go/bin/go version;`)
-	B  = gs.Str(`ps aux | grep './Puzzle' | grep -v grep| awk '{print $2}' | xargs kill -9 ;export PATH="$PATH:/tmp/repo_update/GoR/go/bin" ; cd  /tmp/repo_update &&  git clone https://gitee.com/dark.H/proxy-server.git vczxgasgewgagsad && cd vczxgasgewgagsad &&  go mod tidy && go build -o Puzzle;  ulimit -n 4096 ;sysctl -w net.core.rmem_max=2500000 ;./Puzzle -h; ./Puzzle -d  && sleep 2 ; rm -rf /tmp/repo_update `)
+	B  = gs.Str(`ps aux | grep './Puzzle' | grep -v grep| awk '{print $2}' | xargs kill -9 ;export PATH="$PATH:/tmp/repo_update/GoR/go/bin" ; cd  /tmp/repo_update &&  git clone https://gitee.com/dark.H/proxy-server.git vczxgasgewgagsad && cd vczxgasgewgagsad &&  go mod tidy && VERSION=$(git rev-parse --short HEAD) && go build -o Puzzle -ldflags "-s -w -X gitee.com/dark.H/ProxyZ/version.Version=$VERSION -X gitee.com/dark.H/ProxyZ/version.GitCommit=$VERSION -X gitee.com/dark.H/ProxyZ/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)";  ulimit -n 4096 ;sysctl -w net.core.rmem_max=2500000 ;./Puzzle -h; ./Puzzle -d  && sleep 2 ; rm -rf /tmp/repo_update `)
 
 	DOWNADDR = ""
 	GITPWD   = ""

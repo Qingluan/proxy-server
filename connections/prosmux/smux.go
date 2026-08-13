@@ -264,17 +264,20 @@ func (m *SmuxConfig) AccpetStream(conn net.Conn) (err error) {
 		debuglog.Write("[smux] session create err=%v", err)
 		return err
 	}
+	sessionStart := time.Now()
 
 	// Use WaitGroup to wait for all streams to finish
 	var wg sync.WaitGroup
+	streamCount := 0
 
 	for {
 		// Accept a new stream
 		stream, err := mux.AcceptStream()
 		if err != nil {
-			debuglog.Write("[smux] session end err=%v", err)
+			debuglog.Write("[smux] session end err=%v alive=%s streams=%d", err, time.Since(sessionStart), streamCount)
 			break
 		}
+		streamCount++
 		wg.Add(1)
 		go func(s *smux.Stream) {
 			defer wg.Done()

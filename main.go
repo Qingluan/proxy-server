@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"gitee.com/dark.H/ProxyZ/connections/base"
+	"gitee.com/dark.H/ProxyZ/connections/debuglog"
 	"gitee.com/dark.H/ProxyZ/servercontroll"
+	"gitee.com/dark.H/ProxyZ/version"
 	"gitee.com/dark.H/edns/pkg/edns"
 	"gitee.com/dark.H/gs"
 )
@@ -114,6 +116,8 @@ func main() {
 	if *maxTunnels > 0 {
 		servercontroll.MaxTunnels = *maxTunnels
 	}
+	debuglog.Write("[server] version=%s commit=%s built=%s", version.Version, version.GitCommit, version.BuildTime)
+	gs.Str("ProxyZ Server " + version.String()).Color("g").Println("version")
 	if !gs.Str(www).IsExists() {
 		gs.Str(www).Mkdir()
 	}
