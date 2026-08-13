@@ -74,3 +74,5 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	lukechampine.com/uint128 v1.2.0 // indirect
 )
+
+replace github.com/xtaci/smux => ./third_party/smux
