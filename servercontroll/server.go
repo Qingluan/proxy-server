@@ -17,8 +17,8 @@ import (
 	"gitee.com/dark.H/ProxyZ/connections/debuglog"
 
 	"gitee.com/dark.H/gs"
-	"github.com/apernet/quic-go"
-	"github.com/apernet/quic-go/http3"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/http3"
 )
 
 var (

@@ -18,24 +18,17 @@ require (
 	github.com/miekg/dns v1.1.69
 	github.com/nsf/termbox-go v1.1.1
 	github.com/pkg/errors v0.9.1
+	github.com/quic-go/quic-go v0.57.1
 	github.com/xtaci/kcp-go v4.3.4+incompatible
 	github.com/xtaci/smux v1.5.47
 	golang.org/x/crypto v0.54.0
-	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	golang.org/x/term v0.45.0
-)
-
-require (
-	github.com/andybalholm/brotli v1.0.6 // indirect
-	github.com/klauspost/compress v1.17.4 // indirect
-	github.com/refraction-networking/utls v1.8.2 // indirect
 )
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
-	github.com/apernet/quic-go v0.61.1-0.20260806010916-184d081eef3e
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect

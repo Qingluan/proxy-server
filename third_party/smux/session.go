@@ -646,14 +646,24 @@ func (s *Session) writeFrameInternal(f Frame, deadline <-chan time.Time, class C
 		seq:    atomic.AddUint32(&s.requestID, 1),
 		result: make(chan writeResult, 1),
 	}
-	select {
-	case s.shaper <- req:
-	case <-s.die:
-		return 0, io.ErrClosedPipe
-	case <-s.chSocketWriteError:
-		return 0, s.socketWriteError.Load().(error)
-	case <-deadline:
-		return 0, ErrTimeout
+	if class == CLSCTRL {
+		// Control frames (SYN/FIN/NOP, and the first data frame of a stream
+		// which carries the SOCKS5 CONNECT/confirm) bypass the FIFO shaper
+		// channel and go straight into the priority queue. This keeps them
+		// from blocking behind bulk data when the shaper channel is full
+		// (head-of-line blocking).
+		s.sq.Push(req)
+		s.notifyShaperPending()
+	} else {
+		select {
+		case s.shaper <- req:
+		case <-s.die:
+			return 0, io.ErrClosedPipe
+		case <-s.chSocketWriteError:
+			return 0, s.socketWriteError.Load().(error)
+		case <-deadline:
+			return 0, ErrTimeout
+		}
 	}
 
 	select {
