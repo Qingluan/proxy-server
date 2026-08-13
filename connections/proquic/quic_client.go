@@ -7,7 +7,7 @@ import (
 	"net"
 
 	"gitee.com/dark.H/ProxyZ/connections/base"
-	"github.com/quic-go/quic-go"
+	"github.com/apernet/quic-go"
 )
 
 type QuicClient struct {
@@ -31,6 +31,7 @@ func NewQuicClient(config *base.ProtocolConfig) (qc *QuicClient, err error) {
 		qc.isclosed = true
 		return qc, err
 	}
+	SetBBR(conn)
 	qc.qcon = conn
 	qc.eid = config.ID
 	return
@@ -70,6 +71,7 @@ func (q *QuicClient) NewConnnect() (con net.Conn, err error) {
 			q.isclosed = true
 			return nil, errors.New("[try agin quic new connect err]: " + err.Error())
 		} else {
+			SetBBR(conn)
 			q.qcon = conn
 		}
 		stream, err = conn.OpenStream()

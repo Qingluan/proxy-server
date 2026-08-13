@@ -13,7 +13,7 @@ import (
 	"gitee.com/dark.H/ProxyZ/asset"
 	"gitee.com/dark.H/ProxyZ/connections/base"
 	"gitee.com/dark.H/gs"
-	"github.com/quic-go/quic-go"
+	"github.com/apernet/quic-go"
 )
 
 type QuicServer struct {
@@ -130,6 +130,7 @@ func (quicServe *QuicServer) AcceptHandle(waitTime time.Duration, handle func(co
 		if err != nil {
 			return err
 		}
+		SetBBR(con)
 		quicServe.Record(con.RemoteAddr())
 		go quicServe.accpeStream(con)
 	}

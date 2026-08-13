@@ -1,6 +1,6 @@
 module gitee.com/dark.H/ProxyZ
 
-go 1.24.0
+go 1.25.0
 
 require (
 	gitee.com/dark.H/edns v0.2.3
@@ -18,17 +18,24 @@ require (
 	github.com/miekg/dns v1.1.69
 	github.com/nsf/termbox-go v1.1.1
 	github.com/pkg/errors v0.9.1
-	github.com/quic-go/quic-go v0.57.1
 	github.com/xtaci/kcp-go v4.3.4+incompatible
 	github.com/xtaci/smux v1.5.47
-	golang.org/x/crypto v0.46.0
-	golang.org/x/term v0.38.0
+	golang.org/x/crypto v0.54.0
+	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
+	golang.org/x/term v0.45.0
+)
+
+require (
+	github.com/andybalholm/brotli v1.0.6 // indirect
+	github.com/klauspost/compress v1.17.4 // indirect
+	github.com/refraction-networking/utls v1.8.2 // indirect
 )
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
+	github.com/apernet/quic-go v0.61.1-0.20260806010916-184d081eef3e
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
@@ -58,12 +65,12 @@ require (
 	golang.org/x/exp/shiny v0.0.0-20251209150349-8475f28825e9 // indirect
 	golang.org/x/image v0.34.0 // indirect
 	golang.org/x/mobile v0.0.0-20251126181937-5c265dc024c4 // indirect
-	golang.org/x/mod v0.30.0 // indirect
-	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
-	golang.org/x/tools v0.39.0 // indirect
+	golang.org/x/mod v0.37.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/tools v0.47.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	lukechampine.com/uint128 v1.2.0 // indirect
 )

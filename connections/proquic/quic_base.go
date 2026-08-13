@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/quic-go/quic-go"
+	"github.com/apernet/quic-go"
 )
 
 var (
