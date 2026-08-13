@@ -274,7 +274,12 @@ func (m *SmuxConfig) AccpetStream(conn net.Conn) (err error) {
 		// Accept a new stream
 		stream, err := mux.AcceptStream()
 		if err != nil {
-			debuglog.Write("[smux] session end err=%v alive=%s streams=%d", err, time.Since(sessionStart), streamCount)
+			// Sessions that carried no stream (streamCount == 0) are
+			// scanner/probe noise or idle connects: rate-limit them. Real
+			// sessions that served requests are always logged.
+			if streamCount > 0 || debuglog.Allow("smux-idle", 100, 100) {
+				debuglog.Write("[smux] session end err=%v alive=%s streams=%d", err, time.Since(sessionStart), streamCount)
+			}
 			break
 		}
 		streamCount++

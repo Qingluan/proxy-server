@@ -171,7 +171,9 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 	if err != nil {
 		// gs.Str(err.Error()).Println("GetServerRequest | err")
 		ErrToFile("Server HandleConnection", err)
-		debuglog.Write("[handshake] err=%v", err)
+		if debuglog.Allow("handshake", 100, 100) {
+			debuglog.Write("[handshake] err=%v", err)
+		}
 		if pt.metrics != nil {
 			pt.metrics.RecordFailure()
 		}
