@@ -62,6 +62,28 @@ func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
+// IdleTunnelThreshold is how long a tunnel with zero live connections must
+// stay untouched before the midnight cleanup deletes it.
+const IdleTunnelThreshold = time.Hour
+
+// CollectIdleTunnelIDs returns the IDs of tunnels that currently have zero
+// live connections AND no connection activity for longer than
+// IdleTunnelThreshold. now is injected so tests can fake the clock.
+func CollectIdleTunnelIDs(now time.Time) gs.List[string] {
+	ids := gs.List[string]{}
+	LockArea(func() {
+		Tunnels.Every(func(no int, i *base.ProxyTunnel) {
+			if i == nil {
+				return
+			}
+			if i.GetClientNum() == 0 && now.Sub(i.LastActive()) > IdleTunnelThreshold {
+				ids = append(ids, i.GetConfig().ID)
+			}
+		})
+	})
+	return ids
+}
+
 func setupHandler(www string) http.Handler {
 	fmt.Println("Scan all listen ports...")
 	mux := http.NewServeMux()
@@ -73,15 +95,8 @@ func setupHandler(www string) http.Handler {
 		for {
 			time.Sleep(30 * time.Minute)
 			if time.Now().Hour() == 0 {
-				gs.Str("Start Refresh All Routes").Println()
-				ids := gs.List[string]{}
-				LockArea(func() {
-					Tunnels.Every(func(no int, i *base.ProxyTunnel) {
-						ids = append(ids, i.GetConfig().ID)
-					})
-				})
-
-				ids.Every(func(no int, i string) {
+				gs.Str("Start Clean Idle Routes (idle > 1h)").Println()
+				CollectIdleTunnelIDs(time.Now()).Every(func(no int, i string) {
 					DelProxy(i)
 				})
 			}
@@ -176,18 +191,18 @@ func setupHandler(www string) http.Handler {
 				score := i.GetScore()
 
 				tunnelInfo := gs.Dict[any]{
-					"id":           i.GetConfig().ID,
-					"type":         proxyType,
-					"score":        score,
-					"total":        total,
-					"active":       active,
-					"failed":       failed,
-					"error_rate":   errorRate,
-					"load_factor":  loadFactor,
-					"avg_latency":  avgLatency.Milliseconds(),
-					"max_conn":     metrics.GetMaxConnections(),
-					"is_healthy":   i.IsHealthy(),
-					"accepts_new":  i.AcceptsNewConnections(),
+					"id":          i.GetConfig().ID,
+					"type":        proxyType,
+					"score":       score,
+					"total":       total,
+					"active":      active,
+					"failed":      failed,
+					"error_rate":  errorRate,
+					"load_factor": loadFactor,
+					"avg_latency": avgLatency.Milliseconds(),
+					"max_conn":    metrics.GetMaxConnections(),
+					"is_healthy":  i.IsHealthy(),
+					"accepts_new": i.AcceptsNewConnections(),
 				}
 				healthScores[i.GetConfig().ID] = tunnelInfo
 

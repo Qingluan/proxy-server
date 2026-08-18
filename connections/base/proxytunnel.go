@@ -37,7 +37,13 @@ type ProxyTunnel struct {
 	// old cons []net.Conn list, which was appended on every stream but never
 	// pruned on close (unbounded growth); only the count was ever consumed
 	// (GetClientNum), so an atomic counter is sufficient.
-	alive        atomic.Int64
+	alive atomic.Int64
+	// lastActive is the unix-nano timestamp of the most recent connection
+	// lifecycle event: a conn accepted by HandleConnAsync or a conn closed
+	// via DelCon (failed handshakes included — an attempted use still proves
+	// someone holds this tunnel). The servercontroll idle reaper uses it to
+	// spare tunnels that were used recently.
+	lastActive   atomic.Int64
 	protocl      Protocol
 	UseSmux      bool
 	On           bool
@@ -53,6 +59,7 @@ func NewProxyTunnel(procol Protocol) *ProxyTunnel {
 	p.UseSmux = true
 	p.maxConn = DefaultMaxConnections
 	p.metrics = NewHealthMetrics(p.maxConn)
+	p.lastActive.Store(time.Now().UnixNano())
 
 	return p
 }
@@ -131,6 +138,7 @@ func (pt *ProxyTunnel) GetConfig() *ProtocolConfig {
 }
 
 func (pt *ProxyTunnel) DelCon(con net.Conn) {
+	pt.touchLastActive()
 	pt.protocl.DelCon(con)
 }
 
@@ -139,6 +147,7 @@ func (pt *ProxyTunnel) SetControllFunc(l func(rawHost string, con net.Conn) (err
 }
 
 func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
+	pt.touchLastActive()
 	// Global stream budget first: this is the primary defence against FD and
 	// memory exhaustion across all tunnels. Per-tunnel limits cannot stop a
 	// single client from exhausting the whole process.
@@ -215,6 +224,21 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 
 func (pt *ProxyTunnel) GetClientNum() int {
 	return int(pt.alive.Load())
+}
+
+// LastActive reports when the tunnel last accepted or closed a connection.
+func (pt *ProxyTunnel) LastActive() time.Time {
+	return time.Unix(0, pt.lastActive.Load())
+}
+
+// SetLastActive overwrites the last-activity timestamp. Connection lifecycle
+// is the only production writer; this exists so tests can backdate a tunnel.
+func (pt *ProxyTunnel) SetLastActive(t time.Time) {
+	pt.lastActive.Store(t.UnixNano())
+}
+
+func (pt *ProxyTunnel) touchLastActive() {
+	pt.lastActive.Store(time.Now().UnixNano())
 }
 
 func (pt *ProxyTunnel) GetClientIP() gs.List[string] {
