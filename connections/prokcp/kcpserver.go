@@ -68,12 +68,34 @@ type KcpServer struct {
 	// RedirectBook  *utils.Config
 }
 
+// acceptTuned accepts from the KCP listener and tunes the session on the way in.
+func acceptTuned(l net.Listener) (net.Conn, error) {
+	con, err := l.Accept()
+	if err != nil {
+		return nil, err
+	}
+	if sess, ok := con.(*kcp.UDPSession); ok {
+		tuneKCPSession(sess)
+	}
+	return con, nil
+}
+
+// tuneKCPSession mirrors the client's fast4 KCP params: immediate mode,
+// 10ms interval, fast resend, congestion control off, no delayed ACK,
+// 512/512 windows. kcp-go defaults (normal mode, 40ms, delayed ACK) are
+// the server/client asymmetry that added latency on every round trip.
+func tuneKCPSession(sess *kcp.UDPSession) {
+	sess.SetNoDelay(1, 10, 2, 1)
+	sess.SetACKNoDelay(true)
+	sess.SetWindowSize(512, 512)
+}
+
 func (ksever *KcpServer) Accept() (con net.Conn, err error) {
 	listener := ksever.GetListener()
 	if listener == nil {
 		return nil, errors.New("get listener err! in kcp")
 	}
-	con, err = listener.Accept()
+	con, err = acceptTuned(listener)
 	if err != nil {
 		return
 	}
@@ -106,6 +128,10 @@ func (ksever *KcpServer) GetListener() net.Listener {
 	addr := serverAddr.Str()
 	gs.Str(addr).Println("listen kcp")
 	if listener, err := kcp.ListenWithOptions(addr, block, DataShard, ParityShard); err == nil {
+		// 4MB UDP socket buffers to match the client's fast4 mode; on Linux
+		// net.core.rmem_max must be >= 4MB or the kernel silently clamps.
+		_ = listener.SetReadBuffer(4 * 1024 * 1024)
+		_ = listener.SetWriteBuffer(4 * 1024 * 1024)
 		return listener
 	} else {
 		return nil
@@ -141,7 +167,7 @@ func (kcpServer *KcpServer) AcceptHandle(waitTime time.Duration, handle func(con
 	}
 	defer listener.Close()
 	for {
-		con, err := listener.Accept()
+		con, err := acceptTuned(listener)
 		if err != nil {
 			return err
 		}
