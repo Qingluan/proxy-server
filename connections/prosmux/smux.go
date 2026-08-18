@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"gitee.com/dark.H/ProxyZ/connections/debuglog"
 	"github.com/fatih/color"
 	"github.com/xtaci/smux"
-	"gitee.com/dark.H/ProxyZ/connections/debuglog"
 )
 
 var FGCOLORS = []func(a ...interface{}) string{
@@ -65,7 +65,7 @@ type SmuxConfig struct {
 func (kconfig *SmuxConfig) SetAsDefault() {
 	kconfig.Mode = "fast4"
 
-	kconfig.KeepAlive = 10
+	kconfig.KeepAlive = 20
 	kconfig.MTU = 1350
 	kconfig.DataShard = 10
 	kconfig.ParityShard = 3
@@ -73,9 +73,12 @@ func (kconfig *SmuxConfig) SetAsDefault() {
 	kconfig.RcvWnd = 2048 * 2
 	kconfig.ScavengeTTL = 600
 	kconfig.AutoExpire = 7
-	kconfig.SmuxBuf = 4194304 // 4MB receive buffer
-	kconfig.StreamBuf = 2097152 // 2MB per-stream buffer
-	kconfig.AckNodelay = true // OPTIMIZED: true for lower latency and higher throughput (must match client)
+	// Ratio fix (plan G13): a wide session cap with a narrow per-stream
+	// window keeps 2 heavy streams from starving the session bucket.
+	// Both are flow-control accounting caps in smux, not allocations.
+	kconfig.SmuxBuf = 16777216  // 16MB receive buffer
+	kconfig.StreamBuf = 1048576 // 1MB per-stream buffer
+	kconfig.AckNodelay = true   // OPTIMIZED: true for lower latency and higher throughput (must match client)
 	kconfig.SocketBuf = 4194304 // 4MB socket buffer
 }
 
@@ -205,6 +208,9 @@ func (kconfig *SmuxConfig) GenerateConfig() *smux.Config {
 	smuxConfig.MaxReceiveBuffer = kconfig.SmuxBuf
 	smuxConfig.MaxStreamBuffer = kconfig.StreamBuf
 	smuxConfig.KeepAliveInterval = time.Duration(kconfig.KeepAlive) * time.Second
+	// 3x interval (plan G13: 20s/60s): tolerates 2 dropped NOPs before
+	// the receiver tears the session down.
+	smuxConfig.KeepAliveTimeout = 60 * time.Second
 	if err := smux.VerifyConfig(smuxConfig); err != nil {
 		log.Fatalf("%+v", err)
 	}
