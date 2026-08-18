@@ -22,10 +22,27 @@ var (
 
 const bufSize = 4096
 
+// errLog is the shared append handle for /tmp/z.log. Without it every error
+// paid an open/write/close syscall triple; the handle is opened lazily on
+// first use and reused for the process lifetime.
+var (
+	errLogMu   sync.Mutex
+	errLogFile *os.File
+)
+
+const errLogPath = "/tmp/z.log"
+
 func ErrToFile(label string, err error) {
-	c := gs.Str("[%s]:" + err.Error() + "\n").F(label)
-	// c.Color("r").Print()
-	c.ToFile("/tmp/z.log")
+	errLogMu.Lock()
+	defer errLogMu.Unlock()
+	if errLogFile == nil {
+		f, ferr := os.OpenFile(errLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if ferr != nil {
+			return
+		}
+		errLogFile = f
+	}
+	fmt.Fprintf(errLogFile, "[%s]:%s\n", label, err.Error())
 }
 
 // const bufSize = 8192

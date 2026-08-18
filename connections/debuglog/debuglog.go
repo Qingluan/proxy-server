@@ -7,7 +7,9 @@ package debuglog
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -44,10 +46,45 @@ func (w *writer) write(line string) {
 	w.f.WriteString(line)
 }
 
+// enabled gates hot-path debug lines. It is initialized once from the
+// PUZZLE_DEBUG env var (any non-empty value enables) and can be flipped at
+// runtime via SetEnabled (tests, load-test evidence collection).
+var enabled atomic.Bool
+
+func init() {
+	enabled.Store(os.Getenv("PUZZLE_DEBUG") != "")
+}
+
+// SetEnabled turns the hot-path debug gate on or off.
+func SetEnabled(v bool) { enabled.Store(v) }
+
+// Enabled reports whether the hot-path debug gate is currently on.
+func Enabled() bool { return enabled.Load() }
+
+// gatedPrefixes lists the hot-path debug categories that are suppressed when
+// the gate is off. These are the per-request volume lines. Everything NOT
+// listed here (session lifecycle, tunnel lifecycle, errors, overload limits)
+// is always logged: load-test metrics parse those lines, so they must never
+// be silenced.
+var gatedPrefixes = []string{"[req]", "[dial] SLOW"}
+
+func gated(format string) bool {
+	for _, p := range gatedPrefixes {
+		if strings.HasPrefix(format, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // Write appends a timestamped line. It is thread-safe, does not block
 // meaningfully, and silently ignores write errors, so it is safe to call from
-// any hot path without affecting normal service.
+// any hot path without affecting normal service. Hot-path debug categories
+// (see gatedPrefixes) become no-ops unless the PUZZLE_DEBUG gate is enabled.
 func Write(format string, args ...any) {
+	if gated(format) && !enabled.Load() {
+		return
+	}
 	w.write(fmt.Sprintf("%s %s\n", time.Now().Format("2006-01-02 15:04:05.000"), fmt.Sprintf(format, args...)))
 }
 

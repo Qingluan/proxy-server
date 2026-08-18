@@ -236,21 +236,11 @@ func (pt *ProxyTunnel) DnsNormal(host string, con net.Conn) (err error) {
 	// 	Timeout:   1 * time.Second,
 	// 	LocalAddr: &laddr,
 	// }
-	gs.Str(host).Println("query")
 	if msg, err := prodns.ReplyDNS(gs.Str(host)); err != nil || msg == "" {
 		gs.Str(err.Error()).Println("DNS")
 		return err
 	} else {
-
 		con.Write(msg.Bytes())
-		if m, err := prodns.UnpackDNS(msg); err == nil && m != nil {
-			if len(m.Question) > 0 {
-				if len(m.Answer) > 0 {
-					gs.Str("%s -> %s ").F(gs.Str(m.Question[0].Name).Color("y"), gs.Str(m.Answer[0].String()).Color("g")).Println("dns")
-				}
-			}
-		}
-
 	}
 	return
 }
@@ -300,7 +290,6 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 		debuglog.Write("[dial] SLOW host=%s elapsed=%s", host, dialElapsed)
 	}
 	debuglog.Write("[req] host=%s dial=%s ok", host, dialElapsed)
-	gs.Str(host).Println("host|build")
 	pt.Pipe(remoteConn, con)
 	return
 }
