@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gitee.com/dark.H/ProxyZ/connections/base"
@@ -18,7 +19,7 @@ type SSServer struct {
 	cipher    Cipher
 	ips       gs.Dict[bool]
 	lock      sync.RWMutex
-	ZeroToDel bool
+	ZeroToDel atomic.Bool
 }
 
 // NewSSServer creates a new tcp-encrypt server
@@ -92,7 +93,7 @@ func (s *SSServer) GetConfig() *base.ProtocolConfig {
 }
 
 func (s *SSServer) TryClose() {
-	s.ZeroToDel = true
+	s.ZeroToDel.Store(true)
 }
 
 func (s *SSServer) DelCon(con net.Conn) {
@@ -132,7 +133,7 @@ func (s *SSServer) AcceptHandle(waitTime time.Duration, handle func(con net.Conn
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				if !s.ZeroToDel {
+				if !s.ZeroToDel.Load() {
 					errChan <- err
 				}
 				return
@@ -151,7 +152,7 @@ func (s *SSServer) AcceptHandle(waitTime time.Duration, handle func(con net.Conn
 	for {
 		select {
 		case <-ticker.C:
-			if s.ZeroToDel {
+			if s.ZeroToDel.Load() {
 				return nil
 			}
 		case err := <-errChan:
