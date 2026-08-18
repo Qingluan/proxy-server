@@ -103,9 +103,25 @@ func (quicServ *QuicServer) GetAliveIPS() gs.List[string] {
 	return ds
 }
 
+// newServerQuicConfig pins the server-side QUIC transport parameters.
+//
+// KeepAlivePeriod must stay paired with the client half (proxy-z): 15s here
+// against a 90s MaxIdleTimeout keeps the >=3x margin that prevents the two
+// idle timers from racing connections into recurring EOF resets. The receive
+// windows are pinned at >= the plan floors: stream 6MB (v0.57.1 stock default,
+// old MaxReceive*FlowControlWindow fields no longer exist), connection 16MB.
+func newServerQuicConfig() *quic.Config {
+	return &quic.Config{
+		MaxIdleTimeout:             90 * time.Second,
+		KeepAlivePeriod:            15 * time.Second,
+		MaxStreamReceiveWindow:     6 << 20,
+		MaxConnectionReceiveWindow: 16 << 20,
+	}
+}
+
 func (quicServe *QuicServer) AcceptHandle(waitTime time.Duration, handle func(con net.Conn) error) (err error) {
 	address := gs.Str("%s:%d").F(quicServe.config.Server, quicServe.config.ServerPort).Str()
-	listener, err := quic.ListenAddr(address, quicServe.tlsconfig, nil)
+	listener, err := quic.ListenAddr(address, quicServe.tlsconfig, newServerQuicConfig())
 	if err != nil {
 		return err
 	}
