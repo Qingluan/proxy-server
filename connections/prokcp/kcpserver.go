@@ -63,6 +63,7 @@ type KcpServer struct {
 	AcceptConn int
 	ZeroToDel  bool
 	ips        gs.Dict[bool]
+	listener   net.Listener
 	lock       sync.RWMutex
 	// RedirectBook  *utils.Config
 }
@@ -126,36 +127,37 @@ func NewKcpServer(config *base.ProtocolConfig) *KcpServer {
 }
 
 func (kcpServer *KcpServer) AcceptHandle(waitTime time.Duration, handle func(con net.Conn) error) (err error) {
-	wait10minute := time.NewTicker(1 * time.Minute)
 	listener := kcpServer.GetListener()
+	if listener == nil {
+		return errors.New("listener is closed")
+	}
+	kcpServer.lock.Lock()
+	closedEarly := kcpServer.ZeroToDel
+	kcpServer.listener = listener
+	kcpServer.lock.Unlock()
+	if closedEarly {
+		listener.Close()
+		return nil
+	}
+	defer listener.Close()
 	for {
-	LOOP:
-		select {
-		case <-wait10minute.C:
-			break LOOP
-		default:
-			if kcpServer.ZeroToDel {
-				break
-			} else {
-				wait10minute.Reset(waitTime)
-			}
-		}
-		if listener == nil {
-			return errors.New("listener is closed!")
-		}
 		con, err := listener.Accept()
 		if err != nil {
-			listener.Close()
 			return err
 		}
 		kcpServer.Record(con.RemoteAddr())
 		go handle(con)
 	}
-	// return
 }
 
 func (kcpServer *KcpServer) TryClose() {
+	kcpServer.lock.Lock()
 	kcpServer.ZeroToDel = true
+	listener := kcpServer.listener
+	kcpServer.lock.Unlock()
+	if listener != nil {
+		listener.Close()
+	}
 }
 
 func (kcpserver *KcpServer) Record(con net.Addr) {

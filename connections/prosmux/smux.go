@@ -218,31 +218,6 @@ func (m *SmuxConfig) Server() (err error) {
 		return nil
 	})
 
-	// for {
-	// LOOP:
-	// 	// Accept a TCP connection
-	// 	select {
-	// 	case <-wait10minute.C:
-	// 	default:
-	// 		if *m.ZeroToDel {
-	// 			m.Listener.Close()
-	// 			break LOOP
-	// 		} else {
-	// 			wait10minute.Reset(10 * time.Minute)
-	// 		}
-
-	// 	}
-	// 	conn, err := m.Listener.Accept()
-	// 	if err != nil {
-	// 		time.Sleep(10 * time.Second)
-	// 		gs.Str(err.Error()).Println("smux raw conn accpet err")
-	// 		m.Listener.Close()
-	// 		break
-	// 	}
-
-	// 	go m.AccpetStream(conn)
-	// }
-	// m.Listener.Close()
 	return nil
 	// return err
 }

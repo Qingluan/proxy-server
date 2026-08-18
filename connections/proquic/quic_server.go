@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"log"
 	"net"
 	"sync"
@@ -22,6 +21,7 @@ type QuicServer struct {
 	AcceptConn int
 	ZeroToDel  bool
 	ips        gs.Dict[bool]
+	listener   *quic.Listener
 	lock       sync.RWMutex
 	handleConn func(con net.Conn) error
 }
@@ -105,27 +105,21 @@ func (quicServ *QuicServer) GetAliveIPS() gs.List[string] {
 
 func (quicServe *QuicServer) AcceptHandle(waitTime time.Duration, handle func(con net.Conn) error) (err error) {
 	address := gs.Str("%s:%d").F(quicServe.config.Server, quicServe.config.ServerPort).Str()
-	wait10minute := time.NewTicker(1 * time.Minute)
 	listener, err := quic.ListenAddr(address, quicServe.tlsconfig, nil)
 	if err != nil {
 		return err
 	}
+	quicServe.lock.Lock()
+	closedEarly := quicServe.ZeroToDel
+	quicServe.listener = listener
+	quicServe.lock.Unlock()
+	if closedEarly {
+		listener.Close()
+		return nil
+	}
+	defer listener.Close()
 	quicServe.handleConn = handle
 	for {
-	LOOP:
-		select {
-		case <-wait10minute.C:
-			break LOOP
-		default:
-			if quicServe.ZeroToDel {
-				break
-			} else {
-				wait10minute.Reset(waitTime)
-			}
-		}
-		if listener == nil {
-			return errors.New("listener is closed!")
-		}
 		con, err := listener.Accept(context.Background())
 		if err != nil {
 			return err
@@ -133,12 +127,16 @@ func (quicServe *QuicServer) AcceptHandle(waitTime time.Duration, handle func(co
 		quicServe.Record(con.RemoteAddr())
 		go quicServe.accpeStream(con)
 	}
-
-	// return
 }
 
 func (quicServer *QuicServer) TryClose() {
+	quicServer.lock.Lock()
 	quicServer.ZeroToDel = true
+	listener := quicServer.listener
+	quicServer.lock.Unlock()
+	if listener != nil {
+		listener.Close()
+	}
 }
 
 func (quicServer *QuicServer) accpeStream(con *quic.Conn) (err error) {

@@ -26,6 +26,7 @@ type TlsServer struct {
 	config    *base.ProtocolConfig
 	tlsconfig *tls.Config
 	ips       gs.Dict[bool]
+	listener  net.Listener
 	// RedirectMode  bool
 	// TunnelChan     chan Channel
 	// TcpListenPorts map[string]int
@@ -100,37 +101,37 @@ func (tlsServer *TlsServer) GetAliveIPS() gs.List[string] {
 }
 
 func (tlsServer *TlsServer) AcceptHandle(waitTime time.Duration, handle func(con net.Conn) error) (err error) {
-	wait10minute := time.NewTicker(1 * time.Minute)
 	listener := tlsServer.GetListener()
+	if listener == nil {
+		return errors.New("listener is closed")
+	}
+	tlsServer.lock.Lock()
+	closedEarly := tlsServer.ZeroToDel
+	tlsServer.listener = listener
+	tlsServer.lock.Unlock()
+	if closedEarly {
+		listener.Close()
+		return nil
+	}
+	defer listener.Close()
 	for {
-	LOOP:
-		select {
-		case <-wait10minute.C:
-			break LOOP
-		default:
-			if tlsServer.ZeroToDel {
-				break
-			} else {
-				wait10minute.Reset(waitTime)
-			}
-		}
-		if listener == nil {
-			return errors.New("listenre is closed")
-		}
-
 		con, err := listener.Accept()
 		if err != nil {
-			listener.Close()
 			return err
 		}
 		tlsServer.Record(con.RemoteAddr())
 		go handle(con)
 	}
-	// return
 }
 
 func (tlsServer *TlsServer) TryClose() {
+	tlsServer.lock.Lock()
 	tlsServer.ZeroToDel = true
+	listener := tlsServer.listener
+	tlsServer.lock.Unlock()
+	if listener != nil {
+		listener.Close()
+	}
 }
 
 func (tlsserver *TlsServer) Accept() (con net.Conn, err error) {
