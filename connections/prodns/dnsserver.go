@@ -12,6 +12,20 @@ import (
 
 var RDNS = "8.8.8.8:53"
 
+// lookup is the resolver ReplyDNS resolves through; swapped by
+// connections/base at init so the dial path and DNS answers share one
+// DNS cache (prodns cannot import base — base imports prodns).
+var lookup = net.LookupIP
+
+// SetLookup overrides the resolver used by ReplyDNS. Passing nil restores
+// net.LookupIP.
+func SetLookup(fn func(host string) ([]net.IP, error)) {
+	if fn == nil {
+		fn = net.LookupIP
+	}
+	lookup = fn
+}
+
 type ConnecitonHandler interface {
 	ConnectRemote() (con net.Conn, id string, proxyType string, err error, q_ix int)
 	ErrRecord(eid string, i int)
@@ -79,7 +93,7 @@ func ReplyDNS(dnsmsg gs.Str) (replyMsg gs.Str, err error) {
 		H = H.Slice(0, -1)
 	}
 
-	if ips, err2 := net.LookupIP(H.Str()); err != nil {
+	if ips, err2 := lookup(H.Str()); err != nil {
 		err = err2
 		return
 	} else {

@@ -291,7 +291,7 @@ func (pt *ProxyTunnel) TcpNormal(host string, con net.Conn) (err error) {
 		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}
-	remoteConn, err := dialer.Dial("tcp", host)
+	remoteConn, err := dialCached(SharedDNSCache, dialer, host)
 	dialElapsed := time.Since(dialStart)
 	if err != nil {
 		if ne, ok := err.(*net.OpError); ok && (ne.Err == syscall.EMFILE || ne.Err == syscall.ENFILE) {
