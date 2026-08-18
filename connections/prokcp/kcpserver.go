@@ -82,12 +82,12 @@ func acceptTuned(l net.Listener) (net.Conn, error) {
 
 // tuneKCPSession mirrors the client's fast4 KCP params: immediate mode,
 // 10ms interval, fast resend, congestion control off, no delayed ACK,
-// 512/512 windows. kcp-go defaults (normal mode, 40ms, delayed ACK) are
+// 1024/1024 windows. kcp-go defaults (normal mode, 40ms, delayed ACK) are
 // the server/client asymmetry that added latency on every round trip.
 func tuneKCPSession(sess *kcp.UDPSession) {
 	sess.SetNoDelay(1, 10, 2, 1)
 	sess.SetACKNoDelay(true)
-	sess.SetWindowSize(512, 512)
+	sess.SetWindowSize(1024, 1024)
 }
 
 func (ksever *KcpServer) Accept() (con net.Conn, err error) {
