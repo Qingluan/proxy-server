@@ -69,34 +69,34 @@ func GetTlsConfig() *tls.Config {
 
 func (tlsServer *TlsServer) Record(con net.Addr) {
 	ip := con.String()
+	tlsServer.lock.Lock()
 	if tlsServer.ips == nil {
 		tlsServer.ips = make(gs.Dict[bool])
 	}
-	if _, ok := tlsServer.ips[ip]; !ok {
-		tlsServer.lock.Lock()
-		tlsServer.ips[ip] = true
-		tlsServer.lock.Unlock()
-	}
+	tlsServer.ips[ip] = true
+	tlsServer.lock.Unlock()
 }
 
 func (tlsServer *TlsServer) DelRecord(con net.Conn) {
+	ip := con.RemoteAddr().String()
+	tlsServer.lock.Lock()
 	if tlsServer.ips == nil {
 		tlsServer.ips = make(gs.Dict[bool])
 	}
-	ip := con.RemoteAddr().String()
-	if _, ok := tlsServer.ips[ip]; !ok {
-		tlsServer.lock.Lock()
+	if _, ok := tlsServer.ips[ip]; ok {
 		delete(tlsServer.ips, ip)
-		tlsServer.lock.Unlock()
 	}
+	tlsServer.lock.Unlock()
 
 }
 
 func (tlsServer *TlsServer) GetAliveIPS() gs.List[string] {
 	ds := gs.List[string]{}
+	tlsServer.lock.RLock()
 	for k := range tlsServer.ips {
 		ds = append(ds, k)
 	}
+	tlsServer.lock.RUnlock()
 	return ds
 }
 

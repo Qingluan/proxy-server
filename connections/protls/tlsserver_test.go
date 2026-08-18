@@ -3,6 +3,7 @@ package protls
 import (
 	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -92,4 +93,71 @@ func TestAcceptLoopSurvivesIdle(t *testing.T) {
 		t.Fatalf("port %d still bound after AcceptHandle returned: %v", port, err)
 	}
 	rel.Close()
+}
+
+// remoteAddrConn pins RemoteAddr to a fixed address; Record/DelRecord only
+// ever look at RemoteAddr, never at the underlying conn.
+type remoteAddrConn struct {
+	net.Conn
+	remote net.Addr
+}
+
+func (c *remoteAddrConn) RemoteAddr() net.Addr { return c.remote }
+
+func tcpAddr(ip string, port int) net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP(ip), Port: port}
+}
+
+// TestRecordDelRecordChurn guards the ips-map unbounded growth: Record keys
+// the map by remote addr (port included, so every connection is a fresh key)
+// and DelRecord's inverted !ok condition made every delete a no-op. After the
+// fix, a full open/close cycle must return the map to its baseline size.
+func TestRecordDelRecordChurn(t *testing.T) {
+	srv := NewTlsServer(&base.ProtocolConfig{Server: "127.0.0.1", ServerPort: 0})
+	if got := len(srv.GetAliveIPS()); got != 0 {
+		t.Fatalf("baseline alive ips = %d, want 0", got)
+	}
+	const cycles = 1000
+	for i := 0; i < cycles; i++ {
+		a := tcpAddr("10.0.0.1", 20000+i)
+		srv.Record(a)
+		srv.DelRecord(&remoteAddrConn{remote: a})
+	}
+	if got := len(srv.GetAliveIPS()); got != 0 {
+		t.Fatalf("alive ips after %d open/close cycles = %d, want 0 (map never shrank)", cycles, got)
+	}
+}
+
+// TestRecordGetAliveIPSParallel drives concurrent Record/DelRecord churn
+// against concurrent GetAliveIPS iteration. Before the fix, Record's
+// presence check ran before taking the lock and GetAliveIPS iterated the map
+// unlocked — concurrent map iteration + write is a fatal (unrecoverable)
+// runtime crash that the race detector flags.
+func TestRecordGetAliveIPSParallel(t *testing.T) {
+	srv := NewTlsServer(&base.ProtocolConfig{Server: "127.0.0.1", ServerPort: 0})
+	var wg sync.WaitGroup
+	for w := 0; w < 4; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < 1000; i++ {
+				a := tcpAddr(fmt.Sprintf("10.0.%d.%d", w, i%250), 30000+i)
+				srv.Record(a)
+				srv.DelRecord(&remoteAddrConn{remote: a})
+			}
+		}(w)
+	}
+	for r := 0; r < 2; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 2000; i++ {
+				_ = srv.GetAliveIPS()
+			}
+		}()
+	}
+	wg.Wait()
+	if got := len(srv.GetAliveIPS()); got != 0 {
+		t.Fatalf("alive ips after parallel churn = %d, want 0", got)
+	}
 }

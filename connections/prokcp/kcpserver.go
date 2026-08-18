@@ -162,33 +162,33 @@ func (kcpServer *KcpServer) TryClose() {
 
 func (kcpserver *KcpServer) Record(con net.Addr) {
 	ip := con.String()
+	kcpserver.lock.Lock()
 	if kcpserver.ips == nil {
 		kcpserver.ips = make(gs.Dict[bool])
 	}
-	if _, ok := kcpserver.ips[ip]; !ok {
-		kcpserver.lock.Lock()
-		kcpserver.ips[ip] = true
-		kcpserver.lock.Unlock()
-	}
+	kcpserver.ips[ip] = true
+	kcpserver.lock.Unlock()
 }
 
 func (kcpserver *KcpServer) DelRecord(con net.Conn) {
+	ip := con.RemoteAddr().String()
+	kcpserver.lock.Lock()
 	if kcpserver.ips == nil {
 		kcpserver.ips = make(gs.Dict[bool])
 	}
-	ip := con.RemoteAddr().String()
-	if _, ok := kcpserver.ips[ip]; !ok {
-		kcpserver.lock.Lock()
+	if _, ok := kcpserver.ips[ip]; ok {
 		delete(kcpserver.ips, ip)
-		kcpserver.lock.Unlock()
 	}
+	kcpserver.lock.Unlock()
 
 }
 
 func (kcpserver *KcpServer) GetAliveIPS() gs.List[string] {
 	ds := gs.List[string]{}
+	kcpserver.lock.RLock()
 	for k := range kcpserver.ips {
 		ds = append(ds, k)
 	}
+	kcpserver.lock.RUnlock()
 	return ds
 }

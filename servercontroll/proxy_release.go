@@ -170,31 +170,37 @@ func AddProxy(c *base.ProxyTunnel) {
 func DelProxy(name string) (found bool) {
 
 	e := gs.List[*base.ProxyTunnel]{}
-	for _, tun := range Tunnels {
-		if tun == nil {
-			continue
-		}
-		if tun.GetConfig().ID == name {
-
-			if num, ok := ErrTypeCount[tun.GetConfig().ProxyType]; ok {
-				num += 1
-				LockArea(func() {
-					ErrTypeCount[tun.GetConfig().ProxyType] = num
-				})
-			}
-			debuglog.Write("[tunnel] DelProxy id=%s type=%s", name, tun.GetConfig().ProxyType)
-			tun.SetWaitToClose()
-			base.ClosePortUFW(tun.GetConfig().ServerPort)
-			base.ReleasePort(tun.GetConfig().ServerPort)
-			found = true
-			continue
-		} else {
-			e = e.Add(tun)
-		}
-	}
+	hits := gs.List[*base.ProxyTunnel]{}
+	// Hold the same lock AddProxy/selectBestTunnel use: iterating Tunnels
+	// while another goroutine appends is a data race. ErrTypeCount is
+	// guarded by the same package lock, so it is updated inline (a nested
+	// LockArea here would self-deadlock). The slow teardown calls (ufw
+	// subprocesses) run after the lock is released.
 	LockArea(func() {
+		for _, tun := range Tunnels {
+			if tun == nil {
+				continue
+			}
+			if tun.GetConfig().ID == name {
+
+				if num, ok := ErrTypeCount[tun.GetConfig().ProxyType]; ok {
+					ErrTypeCount[tun.GetConfig().ProxyType] = num + 1
+				}
+				hits = hits.Add(tun)
+				found = true
+				continue
+			} else {
+				e = e.Add(tun)
+			}
+		}
 		Tunnels = e
 	})
+	for _, tun := range hits {
+		debuglog.Write("[tunnel] DelProxy id=%s type=%s", name, tun.GetConfig().ProxyType)
+		tun.SetWaitToClose()
+		base.ClosePortUFW(tun.GetConfig().ServerPort)
+		base.ReleasePort(tun.GetConfig().ServerPort)
+	}
 
 	return
 }
@@ -253,13 +259,16 @@ func NewProxyByErrCount() (c *base.ProxyTunnel) {
 }
 
 func GetProxyByID(name string) (c *base.ProxyTunnel) {
-	for _, tun := range Tunnels {
-		if tun.GetConfig().ID == name {
-			return tun
-		} else {
+	LockArea(func() {
+		for _, tun := range Tunnels {
+			if tun.GetConfig().ID == name {
+				c = tun
+				return
+			} else {
 
+			}
 		}
-	}
+	})
 	return
 }
 

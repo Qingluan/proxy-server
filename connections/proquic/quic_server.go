@@ -72,34 +72,34 @@ func (quicServe *QuicServer) GetListener() (ls net.Listener) {
 
 func (quicServ *QuicServer) Record(con net.Addr) {
 	ip := con.String()
+	quicServ.lock.Lock()
 	if quicServ.ips == nil {
 		quicServ.ips = make(gs.Dict[bool])
 	}
-	if _, ok := quicServ.ips[ip]; !ok {
-		quicServ.lock.Lock()
-		quicServ.ips[ip] = true
-		quicServ.lock.Unlock()
-	}
+	quicServ.ips[ip] = true
+	quicServ.lock.Unlock()
 }
 
 func (quicServ *QuicServer) DelRecord(con net.Addr) {
+	ip := con.String()
+	quicServ.lock.Lock()
 	if quicServ.ips == nil {
 		quicServ.ips = make(gs.Dict[bool])
 	}
-	ip := con.String()
-	if _, ok := quicServ.ips[ip]; !ok {
-		quicServ.lock.Lock()
+	if _, ok := quicServ.ips[ip]; ok {
 		delete(quicServ.ips, ip)
-		quicServ.lock.Unlock()
 	}
+	quicServ.lock.Unlock()
 
 }
 
 func (quicServ *QuicServer) GetAliveIPS() gs.List[string] {
 	ds := gs.List[string]{}
+	quicServ.lock.RLock()
 	for k := range quicServ.ips {
 		ds = append(ds, k)
 	}
+	quicServ.lock.RUnlock()
 	return ds
 }
 

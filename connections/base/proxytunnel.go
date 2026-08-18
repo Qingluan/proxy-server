@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -32,9 +33,11 @@ const (
 )
 
 type ProxyTunnel struct {
-	cons         gs.List[net.Conn]
-	alive        int
-	lock         sync.RWMutex
+	// alive counts streams currently held by HandleConnAsync. It replaces the
+	// old cons []net.Conn list, which was appended on every stream but never
+	// pruned on close (unbounded growth); only the count was ever consumed
+	// (GetClientNum), so an atomic counter is sufficient.
+	alive        atomic.Int64
 	protocl      Protocol
 	UseSmux      bool
 	On           bool
@@ -187,14 +190,9 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 	// Clear the handshake deadline after the request is parsed.
 	con.SetReadDeadline(time.Time{})
 
-	pt.lock.Lock()
-	pt.cons = pt.cons.Add(con)
-	pt.alive += 1
-	pt.lock.Unlock()
+	pt.alive.Add(1)
 	defer func() {
-		pt.lock.Lock()
-		pt.alive -= 1
-		pt.lock.Unlock()
+		pt.alive.Add(-1)
 		// Record latency and release connection
 		if pt.metrics != nil {
 			pt.metrics.RecordLatency(time.Since(startTime))
@@ -216,7 +214,7 @@ func (pt *ProxyTunnel) HandleConnAsync(con net.Conn) {
 }
 
 func (pt *ProxyTunnel) GetClientNum() int {
-	return pt.alive
+	return int(pt.alive.Load())
 }
 
 func (pt *ProxyTunnel) GetClientIP() gs.List[string] {
